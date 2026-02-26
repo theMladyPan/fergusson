@@ -2,47 +2,91 @@ import asyncio
 import sys
 from loguru import logger
 from src.broker.bus import MessageBus
-from src.broker.schemas import OutboundMessage
+from src.broker.schemas import OutboundMessage, InboundMessage
 from src.channels.discord import DiscordChannel
+from src.config import app_config
+from src.db.session import init_db, async_session
+from src.agent.core import AgentManager
+from src.agent.memory import get_or_create_user, get_or_create_conversation, add_message, get_history
 
-
-async def agent_mock_loop(bus: MessageBus):
-    """A mock agent loop that just echoes messages back."""
-    logger.info("Mock agent started. Listening for inbound messages...")
+async def agent_loop(bus: MessageBus, manager: AgentManager):
+    """The main agent loop that processes inbound messages using Pydantic-AI."""
+    logger.info("Fergusson Agent started. Listening for inbound messages...")
+    
     while True:
         try:
-            msg = await bus.get_next_inbound()
-            logger.info(f"Agent received from {msg.channel}: {msg.content}")
+            msg: InboundMessage = await bus.get_next_inbound()
+            logger.info(f"Processing message from {msg.channel}/{msg.username}: {msg.content[:50]}...")
 
-            # Create a simple echo response
-            reply = OutboundMessage(
-                chat_id=msg.chat_id,
-                content=f"Echo: {msg.content}",
-                channel=msg.channel,
-                reply_to=msg.metadata.get("message_id"),
-            )
-            await bus.publish_outbound(reply)
+            async with async_session() as session:
+                # 1. Ensure user and conversation exist
+                await get_or_create_user(session, msg.sender_id, msg.username)
+                await get_or_create_conversation(session, msg.chat_id, msg.sender_id)
+
+                # 2. Retrieve history
+                history = await get_history(session, msg.chat_id)
+
+                # 3. Add current user message to DB
+                await add_message(session, msg.chat_id, "user", msg.content)
+
+                # 4. Run Agent
+                try:
+                    # We pass the history to the agent
+                    result = await manager.run(msg.content, history=history)
+                    
+                    # 5. Add assistant response to DB
+                    await add_message(session, msg.chat_id, "assistant", result)
+
+                    # 6. Publish outbound message
+                    reply = OutboundMessage(
+                        chat_id=msg.chat_id,
+                        content=result,
+                        channel=msg.channel,
+                        reply_to=msg.metadata.get("message_id")
+                    )
+                    await bus.publish_outbound(reply)
+                    
+                except Exception as e:
+                    logger.error(f"Agent execution error: {e}")
+                    error_reply = OutboundMessage(
+                        chat_id=msg.chat_id,
+                        content=f"Sorry, I encountered an error: {str(e)}",
+                        channel=msg.channel,
+                        reply_to=msg.metadata.get("message_id")
+                    )
+                    await bus.publish_outbound(error_reply)
+
         except asyncio.CancelledError:
             break
         except Exception as e:
-            logger.error(f"Mock agent error: {e}")
-
+            logger.error(f"Agent loop error: {e}")
+            await asyncio.sleep(1)
 
 async def main():
-    logger.add(sys.stderr, format="{time} {level} {message}", filter="my_module", level="INFO")
-
+    # Setup logging
+    logger.remove()
+    logger.add(sys.stderr, level="INFO", format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>")
+    
+    # Initialize DB
+    await init_db()
+    
     bus = MessageBus()
+    manager = AgentManager()
+    
+    # Initialize and start active channels
+    active_channels = []
+    
+    if "discord" in app_config.channels and app_config.channels["discord"].enabled:
+        discord_channel = DiscordChannel(bus)
+        active_channels.append(discord_channel)
+        await discord_channel.start()
+        logger.info("Discord channel enabled and started.")
 
-    # Initialize channels
-    discord_channel = DiscordChannel(bus)  # Requires token in config
-
-    # Start channels
-    # Uncomment to enable discord (if configured)
-    await discord_channel.start()
-
-    # Start the mock agent
-    agent_task = asyncio.create_task(agent_mock_loop(bus))
-
+    # Start the real agent loop
+    agent_task = asyncio.create_task(agent_loop(bus, manager))
+    
+    logger.info("System fully operational. Press Ctrl+C to stop.")
+    
     try:
         # Keep the main loop running
         while True:
@@ -51,9 +95,10 @@ async def main():
         logger.info("Interrupted by user.")
     finally:
         logger.info("Shutting down...")
-        # await discord_channel.stop()
+        for channel in active_channels:
+            await channel.stop()
         agent_task.cancel()
-
+        await asyncio.gather(agent_task, return_exceptions=True)
 
 if __name__ == "__main__":
     asyncio.run(main())
