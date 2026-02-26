@@ -52,15 +52,15 @@ fergusson/
 ## Implementation Phases
 
 ### Phase 1: Foundation
-- [ ] Initialize `uv` project.
-- [ ] Create folder structure.
-- [ ] Configure `compose.yaml` for Redis.
-- [ ] Implement SQLAlchemy models (`User`, `Conversation`, `Message`).
+- [x] Initialize `uv` project.
+- [x] Create folder structure.
+- [x] Configure `compose.yaml` for Redis.
+- [x] Implement SQLAlchemy models (`User`, `Conversation`, `Message`).
 
 ### Phase 2: Broker & Channels
-- [ ] Implement Redis `MessageBus`.
-- [ ] Port/Adapt Discord channel logic.
-- [ ] Create a mock CLI publisher for testing.
+- [x] Implement Redis `MessageBus`.
+- [x] Port/Adapt Discord channel logic.
+- [x] Create a mock CLI publisher for testing.
 
 ### Phase 3: Core Agent & Tools
 - [ ] Implement Core Pydantic-AI Agent.
