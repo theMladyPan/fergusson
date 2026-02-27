@@ -2,37 +2,101 @@ import os
 from datetime import datetime
 
 import logfire
+from httpx import AsyncClient, HTTPStatusError
 from pydantic_ai import Agent, RunContext
+from pydantic_ai.models.google import GoogleModel
 from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.providers.google import GoogleProvider
 from pydantic_ai.providers.openai import OpenAIProvider
+from pydantic_ai.retries import AsyncTenacityTransport, RetryConfig, wait_retry_after
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from src.agent.skills import SkillRegistry
 from src.broker.bus import MessageBus
-from src.config import app_config
+from src.config import app_config, settings
 from src.tools.bash import run_bash_command
 from src.tools.fs import list_files, read_file_content, write_file_content
 
 
-class AgentManager:
-    def __init__(self, bus: MessageBus):
-        self.bus = bus
-        # Initialize the model based on provider
-        if app_config.llm.provider == "openai":
-            api_key = app_config.llm.api_key or os.environ.get(app_config.llm.api_key_env)
+def create_retrying_client() -> AsyncClient:
+    """Create a client with smart retry handling for multiple error types."""
 
-            # Create a custom AsyncOpenAI client
-            provider = OpenAIProvider(
-                base_url=app_config.llm.base_url,
-                api_key=api_key,
+    def should_retry_status(response):
+        """Raise exceptions for retryable HTTP status codes."""
+        if response.status_code in (429, 502, 503, 504):
+            response.raise_for_status()  # This will raise HTTPStatusError
+
+    transport = AsyncTenacityTransport(
+        config=RetryConfig(
+            # Retry on HTTP errors and connection issues
+            retry=retry_if_exception_type((HTTPStatusError, ConnectionError)),
+            # Smart waiting: respects Retry-After headers, falls back to exponential backoff
+            wait=wait_retry_after(fallback_strategy=wait_exponential(multiplier=1, max=30), max_wait=60),
+            # Stop after 5 attempts
+            stop=stop_after_attempt(5),
+            # Re-raise the last exception if all retries fail
+            reraise=True,
+        ),
+        validate_response=should_retry_status,
+    )
+    return AsyncClient(transport=transport, timeout=15)
+
+
+class AgentManager:
+    def _build_model(self, model_config):
+        provider_name = model_config.provider
+        provider_info = app_config.providers.get(provider_name)
+
+        retrying_client = create_retrying_client()
+
+        if settings.debug:
+            logfire.instrument_httpx(
+                client=retrying_client,
             )
 
-            self.model = OpenAIChatModel(
-                model_name=app_config.llm.model,
+        if not provider_info:
+            logfire.warning(f"Provider '{provider_name}' not found in config. Defaulting to provider's type as name.")
+            return f"{provider_name}:{model_config.model}"
+
+        api_key = provider_info.api_key
+        if not api_key and provider_info.api_key_env:
+            api_key = os.environ.get(provider_info.api_key_env)
+
+        if provider_info.type == "openai":
+            provider = OpenAIProvider(
+                base_url=provider_info.base_url,
+                api_key=api_key,
+                http_client=retrying_client,
+            )
+            logfire.instrument_openai(openai_client=provider.client)
+
+            return OpenAIChatModel(
+                model_name=model_config.model,
+                provider=provider,
+            )
+        elif provider_info.type == "gemini":
+            provider = GoogleProvider(
+                api_key=api_key,
+                http_client=retrying_client,
+            )
+            logfire.instrument_google_genai(provider=provider.client)
+
+            # Auto-instrument Gemini interactions for better observability
+            return GoogleModel(
+                model_name=model_config.model,
                 provider=provider,
             )
         else:
-            # Fallback or other providers
-            self.model = f"{app_config.llm.provider}:{app_config.llm.model}"
+            return f"{provider_info.type}:{model_config.model}"
+
+    def __init__(self, bus: MessageBus):
+        self.bus = bus
+
+        self.smart_model = self._build_model(app_config.models.smart)
+        self.fast_model = self._build_model(app_config.models.fast)
+
+        # Use the smart model for the Core Agent
+        self.model = self.smart_model
 
         self.registry = SkillRegistry()
         self.registry.discover()
@@ -55,6 +119,7 @@ Today is {datetime.now().strftime("%B %d, %Y")}.
         self.core_agent = Agent(
             model=self.model,
             instructions=system_prompt,
+            tool_timeout=20,
         )
 
         # Register tools to Core Agent
@@ -133,8 +198,8 @@ Today is {datetime.now().strftime("%B %d, %Y")}.
 
             logfire.info(f"Delegating task to expert '{expert_id}': {task}")
 
-            # Create a dynamic sub-agent for this skill
-            expert_agent = Agent(self.model, system_prompt=skill.instructions)
+            # Create a dynamic sub-agent for this skill using the fast model
+            expert_agent = Agent(self.fast_model, system_prompt=skill.instructions)
 
             # Sub-agents get the same toolset for now
             expert_agent.tool_plain(run_bash_command)
@@ -142,7 +207,8 @@ Today is {datetime.now().strftime("%B %d, %Y")}.
             expert_agent.tool_plain(read_file_content)
             expert_agent.tool_plain(write_file_content)
 
-            result = await expert_agent.run(task)
+            with logfire.span(f"Running expert agent '{expert_id}'", task=task) as span:
+                result = await expert_agent.run(task)
             return result.output
 
         delegate_to_expert.__doc__ = f""" 

@@ -1,9 +1,28 @@
 {
-  "llm": {
-    "provider": "openai",
-    "model": "mimo-v2-flash",
-    "base_url": "https://api.xiaomimimo.com/v1",
-    "api_key_env": "MIMO_API_KEY"
+  "providers": {
+    "gemini_api": {
+      "type": "gemini",
+      "api_key_env": "GEMINI_API_KEY"
+    },
+    "openai_api": {
+      "type": "openai",
+      "api_key_env": "OPENAI_API_KEY"
+    },
+    "mimo": {
+      "type": "openai",
+      "base_url": "https://api.xiaomimimo.com/v1",
+      "api_key_env": "MIMO_API_KEY"
+    }
+  },
+  "models": {
+    "smart": {
+      "provider": "gemini_api",
+      "model": "gemini-3-flash-preview"
+    },
+    "fast": {
+      "provider": "mimo",
+      "model": "mimo-v2-flash"
+    }
   },
   "channels": {
     "cli": {

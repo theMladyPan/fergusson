@@ -1,13 +1,15 @@
 import asyncio
-import sys
+
+import httpx
 import logfire
-from src.broker.bus import MessageBus
-from src.broker.schemas import OutboundMessage, InboundMessage
-from src.channels.discord import DiscordChannel
-from src.config import app_config, settings
-from src.db.session import init_db, async_session
+
 from src.agent.core import AgentManager
 from src.agent.memory import add_message, get_history
+from src.broker.bus import MessageBus
+from src.broker.schemas import InboundMessage, OutboundMessage
+from src.channels.discord import DiscordChannel
+from src.config import app_config, settings
+from src.db.session import async_session, init_db
 
 
 async def agent_loop(bus: MessageBus, manager: AgentManager):
@@ -70,18 +72,11 @@ async def main():
         scrubbing=False if settings.debug else None,
     )
 
-    logfire.instrument_openai()
-
     # Initialize DB
     await init_db()
 
     bus = MessageBus()
     manager = AgentManager(bus)
-
-    if settings.debug:
-        logfire.instrument_httpx(
-            client=manager.core_agent.model.client._client,
-        )
 
     # Initialize and start active channels
     active_channels = []

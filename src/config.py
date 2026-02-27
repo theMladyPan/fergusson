@@ -7,12 +7,21 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 # Base Models for JSON config
-class LLMConfig(BaseModel):
-    provider: str = "openai"
-    model: str = "gpt-4.1-mini"
+class ProviderConfig(BaseModel):
+    type: str = "openai"
     base_url: str | None = None
     api_key: str | None = None
-    api_key_env: str = "OPENAI_API_KEY"
+    api_key_env: str | None = None
+
+
+class ModelSelection(BaseModel):
+    provider: str
+    model: str
+
+
+class ModelsConfig(BaseModel):
+    smart: ModelSelection = Field(default_factory=lambda: ModelSelection(provider="default", model="gpt-4o"))
+    fast: ModelSelection = Field(default_factory=lambda: ModelSelection(provider="default", model="gpt-4o-mini"))
 
 
 class ChannelConfig(BaseModel):
@@ -33,7 +42,8 @@ class MCPServerConfig(BaseModel):
 class AppConfig(BaseModel):
     """The JSON Configuration file structure."""
 
-    llm: LLMConfig = Field(default_factory=LLMConfig)
+    providers: Dict[str, ProviderConfig] = Field(default_factory=dict)
+    models: ModelsConfig = Field(default_factory=ModelsConfig)
     channels: Dict[str, ChannelConfig] = Field(default_factory=dict)
     mcp_servers: Dict[str, MCPServerConfig] = Field(default_factory=dict)
 
