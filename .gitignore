@@ -7,3 +7,4 @@ workspace/*
 !workspace/skills/
 workspace/skills/*
 !workspace/skills/routine-curator/
+!workspace/skills/clawhub/
