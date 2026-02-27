@@ -4,7 +4,8 @@ import httpx
 import logfire
 
 from src.agent.core import AgentManager
-from src.agent.memory import add_message, get_history
+from src.agent.memory import add_message, get_history, check_and_compact
+from src.agent.archiver import Archiver
 from src.broker.bus import MessageBus
 from src.broker.schemas import InboundMessage, OutboundMessage
 from src.channels.discord import DiscordChannel
@@ -12,7 +13,7 @@ from src.config import app_config, settings
 from src.db.session import async_session, init_db
 
 
-async def agent_loop(bus: MessageBus, manager: AgentManager):
+async def agent_loop(bus: MessageBus, manager: AgentManager, archiver: Archiver):
     """The main agent loop that processes inbound messages using Pydantic-AI."""
     logfire.info("Fergusson Agent started. Listening for inbound messages...")
 
@@ -43,6 +44,16 @@ async def agent_loop(bus: MessageBus, manager: AgentManager):
                             reply_to=msg.metadata.get("message_id"),
                         )
                         await bus.publish_outbound(reply)
+                        
+                        # 6. Trigger background history compaction
+                        async def background_compaction(chat_id: str):
+                            try:
+                                async with async_session() as comp_session:
+                                    await check_and_compact(comp_session, chat_id, archiver)
+                            except Exception as e:
+                                logfire.error(f"Compaction error for {chat_id}: {e}")
+
+                        asyncio.create_task(background_compaction(msg.chat_id))
 
                     except Exception as e:
                         logfire.error(f"Agent execution error: {e}")
@@ -94,9 +105,12 @@ async def main():
             active_channels.append(discord_channel)
             await discord_channel.start()
             logfire.info("Discord channel enabled and started.")
+            
+        # Initialize Archiver
+        archiver = Archiver(model=manager.smart_model)
 
     # Start the real agent loop
-    agent_task = asyncio.create_task(agent_loop(bus, manager))
+    agent_task = asyncio.create_task(agent_loop(bus, manager, archiver))
 
     logfire.notice("System fully operational. Press Ctrl+C to stop.")
 

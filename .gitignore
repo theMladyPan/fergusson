@@ -7,3 +7,4 @@ workspace/db/state.db
 workspace/skills/*
 !workspace/skills/clawhub
 workspace/cli.log
+workspace/MEMORY.md

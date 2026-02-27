@@ -17,3 +17,16 @@ class Message(Base):
     content: Mapped[str] = mapped_column(Text)
     timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     metadata_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    is_valid: Mapped[bool] = mapped_column(default=True)
+
+
+class Summary(Base):
+    """Table to store conversation summaries/condensates."""
+    __tablename__ = "summaries"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    chat_id: Mapped[str] = mapped_column(String, index=True)
+    content: Mapped[str] = mapped_column(Text)
+    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    range_start_id: Mapped[Optional[int]] = mapped_column()  # ID of first message covered
+    range_end_id: Mapped[Optional[int]] = mapped_column()    # ID of last message covered
