@@ -74,7 +74,7 @@ fergusson/
 
 ### Phase 5: Advanced Memory & Tooling
 - [ ] Implement Graph-based Memory using Neo4j.
-- [ ] Create a local scratchpad (MEMORY.md) for transient context.
+- [x] Create a local scratchpad (MEMORY.md) for transient context.
 - [x] Upgrade the CLI tool (richer TUI/UX).
 - [ ] Implement tool-call visibility (notifying the user about tool executions).
 - [ ] Expand tools to include web search and general improvements.

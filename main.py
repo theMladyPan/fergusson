@@ -1,6 +1,6 @@
 import asyncio
 
-import httpx
+from dataclasses import asdict
 import logfire
 
 from src.agent.core import AgentManager
@@ -38,10 +38,11 @@ async def agent_loop(bus: MessageBus, manager: AgentManager, archiver: Archiver)
 
                         # 5. Publish outbound message
                         usage = result.usage()
+
                         token_usage = TokenUsage(
                             input=usage.input_tokens,
                             output=usage.output_tokens,
-                            cache=usage.total_tokens,
+                            cache=usage.cache_read_tokens,
                         )
                         metadata = MessageMetadata(token_usage=token_usage, message_count=len(history) + 2)
                         # Add original metadata if present (like message_id)
@@ -68,6 +69,15 @@ async def agent_loop(bus: MessageBus, manager: AgentManager, archiver: Archiver)
                                 logfire.error(f"Compaction error for {chat_id}: {e}")
 
                         asyncio.create_task(background_compaction(msg.chat_id))
+
+                        span.set_attributes(
+                            {
+                                "usage": asdict(usage),
+                                "channel": msg.channel,
+                                "reply_to": msg.metadata.get("message_id") if msg.metadata else None,
+                                "chat_id": msg.chat_id,
+                            }
+                        )
 
                     except Exception as e:
                         logfire.error(f"Agent execution error: {e}")

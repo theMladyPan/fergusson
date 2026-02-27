@@ -6,10 +6,10 @@ from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
 from textual.containers import VerticalScroll, Vertical
-from textual.widgets import Footer, Header, Input, Markdown, Static
+from textual.widgets import Footer, Header, Input, Markdown, Static, LoadingIndicator
 
 from src.broker.bus import MessageBus
-from src.broker.schemas import InboundMessage, OutboundMessage, TokenUsage
+from src.broker.schemas import InboundMessage, OutboundMessage, TokenUsage, MessageMetadata
 
 
 class UserMessage(Static):
@@ -20,22 +20,22 @@ class UserMessage(Static):
 
 
 class AgentMessage(Static):
-    def __init__(self, text: str):
+    def __init__(self, text: str, metadata: MessageMetadata | None = None):
         super().__init__()
         self.text = text
+        self.metadata = metadata
 
     def compose(self) -> ComposeResult:
         yield Static("[bold green]Fergusson:[/bold green]", classes="agent-header")
         yield Markdown(self.text, classes="agent-content")
 
-
-class StatusBar(Static):
-    def compose(self) -> ComposeResult:
-        yield Static("Ready", id="status-text")
-
-    def update_stats(self, usage: TokenUsage, message_count: int):
-        text = f"Tokens: {usage.cache} (Req: {usage.input}, Res: {usage.output}) | Messages: {message_count}"
-        self.query_one("#status-text", Static).update(text)
+        if self.metadata and self.metadata.token_usage:
+            usage = self.metadata.token_usage
+            count = self.metadata.message_count
+            footer_text = (
+                f"Tokens Input: {usage.input} | Output: {usage.output} | Cache: {usage.cache} | Messages: {count}"
+            )
+            yield Static(footer_text, classes="agent-footer")
 
 
 class FergussonCLI(App):
@@ -64,17 +64,18 @@ class FergussonCLI(App):
         margin-left: 1;
     }
 
+    .agent-footer {
+        text-align: right;
+        color: $text-muted;
+        text-style: italic;
+        margin-top: 0;
+        padding-top: 0;
+        border-top: solid $secondary-darken-2;
+    }
+
     #input-container {
         dock: bottom;
         height: auto;
-    }
-
-    StatusBar {
-        height: 1;
-        width: 100%;
-        background: $accent;
-        color: $text;
-        padding: 0 1;
     }
 
     #message-input {
@@ -86,6 +87,11 @@ class FergussonCLI(App):
     
     #chat-container {
         height: 1fr;
+    }
+    
+    LoadingIndicator {
+        height: auto;
+        margin: 1 2;
     }
     """
 
@@ -101,10 +107,9 @@ class FergussonCLI(App):
     def compose(self) -> ComposeResult:
         yield Header()
         yield VerticalScroll(id="chat-container")
-        # Container for input area to ensure status bar is visible
+        # Container for input area
         with Vertical(id="input-container"):
             yield Input(placeholder="Type your message here... (/quit to exit)", id="message-input")
-            yield StatusBar()
         yield Footer()
 
     def on_mount(self) -> None:
@@ -120,19 +125,19 @@ class FergussonCLI(App):
             async for message in self._pubsub.listen():
                 if message["type"] == "message":
                     try:
+                        # Remove any loading indicator
+                        try:
+                            loading = self.query_one("LoadingIndicator")
+                            await loading.remove()
+                        except Exception:
+                            pass
+
                         msg = OutboundMessage.model_validate_json(message["data"])
                         # Mount the agent message
                         container = self.query_one("#chat-container", VerticalScroll)
-                        agent_msg = AgentMessage(msg.content)
+                        agent_msg = AgentMessage(msg.content, metadata=msg.metadata)
                         await container.mount(agent_msg)
                         agent_msg.scroll_visible()
-
-                        # Update status bar if metadata is present
-                        if msg.metadata and msg.metadata.token_usage:
-                            self.query_one(StatusBar).update_stats(
-                                msg.metadata.token_usage,
-                                msg.metadata.message_count,
-                            )
                     except Exception as e:
                         logfire.error(f"Failed to process outbound message: {e}")
         except asyncio.CancelledError:
@@ -158,6 +163,11 @@ class FergussonCLI(App):
         user_msg = UserMessage(content)
         await container.mount(user_msg)
         user_msg.scroll_visible()
+
+        # Show loading indicator
+        loading = LoadingIndicator()
+        await container.mount(loading)
+        loading.scroll_visible()
 
         # Send to bus
         msg = InboundMessage(
