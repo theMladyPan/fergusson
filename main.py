@@ -7,7 +7,7 @@ from src.agent.core import AgentManager
 from src.agent.memory import add_message, get_history, check_and_compact
 from src.agent.archiver import Archiver
 from src.broker.bus import MessageBus
-from src.broker.schemas import InboundMessage, OutboundMessage
+from src.broker.schemas import InboundMessage, OutboundMessage, MessageMetadata, TokenUsage
 from src.channels.discord import DiscordChannel
 from src.config import app_config, settings
 from src.db.session import async_session, init_db
@@ -34,17 +34,31 @@ async def agent_loop(bus: MessageBus, manager: AgentManager, archiver: Archiver)
                         result = await manager.run(msg.content, history=history)
 
                         # 4. Add assistant response to DB
-                        await add_message(session, msg.chat_id, msg.channel, "assistant", result)
+                        await add_message(session, msg.chat_id, msg.channel, "assistant", result.output)
 
                         # 5. Publish outbound message
+                        usage = result.usage()
+                        token_usage = TokenUsage(
+                            input=usage.input_tokens,
+                            output=usage.output_tokens,
+                            cache=usage.total_tokens,
+                        )
+                        metadata = MessageMetadata(token_usage=token_usage, message_count=len(history) + 2)
+                        # Add original metadata if present (like message_id)
+                        if msg.metadata:
+                            for k, v in msg.metadata.items():
+                                if not hasattr(metadata, k):
+                                    setattr(metadata, k, v)
+
                         reply = OutboundMessage(
                             chat_id=msg.chat_id,
-                            content=result,
+                            content=result.output,
                             channel=msg.channel,
-                            reply_to=msg.metadata.get("message_id"),
+                            reply_to=msg.metadata.get("message_id") if msg.metadata else None,
+                            metadata=metadata,
                         )
                         await bus.publish_outbound(reply)
-                        
+
                         # 6. Trigger background history compaction
                         async def background_compaction(chat_id: str):
                             try:
@@ -105,7 +119,7 @@ async def main():
             active_channels.append(discord_channel)
             await discord_channel.start()
             logfire.info("Discord channel enabled and started.")
-            
+
         # Initialize Archiver
         archiver = Archiver(model=manager.smart_model)
 

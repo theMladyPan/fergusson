@@ -17,7 +17,7 @@ class Archiver:
         with open(template_path, "r") as f:
             self.template = Template(f.read())
 
-    async def summarize(self, messages: list[Message]) -> str:
+    async def summarize(self, messages: list[Message], previous_summary: str = None) -> str:
         """
         Generate a summary for a list of messages using the archiver agent.
         """
@@ -29,6 +29,7 @@ class Archiver:
             "start_id": messages[0].id,
             "end_id": messages[-1].id,
             "messages": messages,
+            "previous_summary": previous_summary,
         }
 
         prompt = self.template.render(**context)

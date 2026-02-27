@@ -14,9 +14,13 @@ The goal is to free up context window space while retaining all critical facts, 
 **Input Context:**
 - **Date:** {{ current_date }}
 - **Range:** Messages {{ start_id }} to {{ end_id }}
+{% if previous_summary %}
+**Previous Summary:**
+{{ previous_summary }}
+{% endif %}
 
 **Output Format:**
-A concise summary text. Do not include introductory or concluding remarks. Just the summary.
+A concise summary text that integrates the previous summary (if any) with the new information. Do not just append; synthesize. Do not include introductory or concluding remarks. Just the summary.
 </system>
 
 <conversation_segment>

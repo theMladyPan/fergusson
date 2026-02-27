@@ -58,26 +58,36 @@ async def check_and_compact(session: AsyncSession, chat_id: str, archiver_agent:
     from sqlalchemy import func
     
     # Check count of valid messages
-    count_result = await session.execute(
-        select(func.count()).select_from(Message).where(Message.chat_id == chat_id, Message.is_valid == True)
-    )
+    stmt = select(func.count(Message.id)).where(Message.chat_id == chat_id, Message.is_valid == True)
+    count_result = await session.execute(stmt)
     count = count_result.scalar()
-    
+
     if count > 26:
         # Fetch oldest 13 messages
-        result = await session.execute(
+        stmt = (
             select(Message)
             .where(Message.chat_id == chat_id, Message.is_valid == True)
             .order_by(Message.timestamp.asc())
             .limit(13)
         )
+        result = await session.execute(stmt)
         messages_to_compact = result.scalars().all()
         
         if not messages_to_compact:
             return
 
+        # Fetch previous summary
+        prev_summary_result = await session.execute(
+            select(Summary)
+            .where(Summary.chat_id == chat_id)
+            .order_by(Summary.timestamp.desc())
+            .limit(1)
+        )
+        previous_summary: Summary | None = prev_summary_result.scalars().first()
+        previous_summary_content = previous_summary.content if previous_summary else None
+
         # Generate summary
-        summary_text = await archiver_agent.summarize(messages_to_compact)
+        summary_text = await archiver_agent.summarize(messages_to_compact, previous_summary=previous_summary_content)
         
         # Save Summary
         summary = Summary(

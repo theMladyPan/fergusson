@@ -5,11 +5,11 @@ import logfire
 from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
-from textual.containers import VerticalScroll
+from textual.containers import VerticalScroll, Vertical
 from textual.widgets import Footer, Header, Input, Markdown, Static
 
 from src.broker.bus import MessageBus
-from src.broker.schemas import InboundMessage, OutboundMessage
+from src.broker.schemas import InboundMessage, OutboundMessage, TokenUsage
 
 
 class UserMessage(Static):
@@ -27,6 +27,15 @@ class AgentMessage(Static):
     def compose(self) -> ComposeResult:
         yield Static("[bold green]Fergusson:[/bold green]", classes="agent-header")
         yield Markdown(self.text, classes="agent-content")
+
+
+class StatusBar(Static):
+    def compose(self) -> ComposeResult:
+        yield Static("Ready", id="status-text")
+
+    def update_stats(self, usage: TokenUsage, message_count: int):
+        text = f"Tokens: {usage.cache} (Req: {usage.input}, Res: {usage.output}) | Messages: {message_count}"
+        self.query_one("#status-text", Static).update(text)
 
 
 class FergussonCLI(App):
@@ -55,11 +64,26 @@ class FergussonCLI(App):
         margin-left: 1;
     }
 
-    #message-input {
+    #input-container {
         dock: bottom;
-        margin: 1;
+        height: auto;
     }
 
+    StatusBar {
+        height: 1;
+        width: 100%;
+        background: $accent;
+        color: $text;
+        padding: 0 1;
+    }
+
+    #message-input {
+        width: 100%;
+        margin: 0;
+        border: none;
+    }
+
+    
     #chat-container {
         height: 1fr;
     }
@@ -77,7 +101,10 @@ class FergussonCLI(App):
     def compose(self) -> ComposeResult:
         yield Header()
         yield VerticalScroll(id="chat-container")
-        yield Input(placeholder="Type your message here... (/quit to exit)", id="message-input")
+        # Container for input area to ensure status bar is visible
+        with Vertical(id="input-container"):
+            yield Input(placeholder="Type your message here... (/quit to exit)", id="message-input")
+            yield StatusBar()
         yield Footer()
 
     def on_mount(self) -> None:
@@ -99,6 +126,13 @@ class FergussonCLI(App):
                         agent_msg = AgentMessage(msg.content)
                         await container.mount(agent_msg)
                         agent_msg.scroll_visible()
+
+                        # Update status bar if metadata is present
+                        if msg.metadata and msg.metadata.token_usage:
+                            self.query_one(StatusBar).update_stats(
+                                msg.metadata.token_usage,
+                                msg.metadata.message_count,
+                            )
                     except Exception as e:
                         logfire.error(f"Failed to process outbound message: {e}")
         except asyncio.CancelledError:
@@ -145,9 +179,9 @@ if __name__ == "__main__":
         send_to_logfire="if-token-present",
         distributed_tracing=False,
         environment=settings.environment,
-        service_name=settings.project,
+        service_name=settings.project + "_cli",
         scrubbing=False if settings.debug else None,
-        console=False, # Prevent breaking Textual TUI
+        console=False,  # Prevent breaking Textual TUI
     )
 
     app = FergussonCLI()

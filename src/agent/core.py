@@ -5,7 +5,7 @@ from pathlib import Path
 import logfire
 from httpx import AsyncClient, HTTPStatusError
 from jinja2 import Template
-from pydantic_ai import Agent, ModelRetry, RunContext
+from pydantic_ai import Agent, ModelRetry, RunContext, AgentRunResult
 from pydantic_ai.models.google import GoogleModel
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.google import GoogleProvider
@@ -225,7 +225,7 @@ Available experts:
 """
         self.core_agent.tool(delegate_to_expert)
 
-    async def run(self, user_input: str, history: list | None = None) -> str:
+    async def run(self, user_input: str, history: list | None = None) -> AgentRunResult:
         """Runs the core agent loop."""
 
         with logfire.span("core_agent_run", input=user_input):
@@ -234,4 +234,4 @@ Available experts:
                 message_history=history,
             )
 
-            return result.output
+            return result
