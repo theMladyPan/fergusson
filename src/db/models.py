@@ -12,6 +12,7 @@ class Message(Base):
     
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     chat_id: Mapped[str] = mapped_column(String, index=True)  # To separate threads/channels
+    channel: Mapped[str] = mapped_column(String, default="unknown")  # e.g., 'discord', 'cli'
     role: Mapped[str] = mapped_column(String)  # 'user', 'assistant'
     content: Mapped[str] = mapped_column(Text)
     timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

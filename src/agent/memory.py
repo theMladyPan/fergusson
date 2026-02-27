@@ -4,9 +4,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.db.models import Message
 from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, UserPromptPart, TextPart
 
-async def add_message(session: AsyncSession, chat_id: str, role: str, content: str, metadata: dict = None):
+async def add_message(session: AsyncSession, chat_id: str, channel: str, role: str, content: str, metadata: dict = None):
     message = Message(
         chat_id=chat_id,
+        channel=channel,
         role=role,
         content=content,
         metadata_json=metadata

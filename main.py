@@ -24,7 +24,7 @@ async def agent_loop(bus: MessageBus, manager: AgentManager):
                 history = await get_history(session, msg.chat_id)
 
                 # 2. Add current user message to DB
-                await add_message(session, msg.chat_id, "user", msg.content)
+                await add_message(session, msg.chat_id, msg.channel, "user", msg.content)
 
                 # 3. Run Agent
                 try:
@@ -32,7 +32,7 @@ async def agent_loop(bus: MessageBus, manager: AgentManager):
                     result = await manager.run(msg.content, history=history)
 
                     # 4. Add assistant response to DB
-                    await add_message(session, msg.chat_id, "assistant", result)
+                    await add_message(session, msg.chat_id, msg.channel, "assistant", result)
 
                     # 5. Publish outbound message
                     reply = OutboundMessage(
@@ -73,7 +73,7 @@ async def main():
     await init_db()
 
     bus = MessageBus()
-    manager = AgentManager()
+    manager = AgentManager(bus)
 
     # Initialize and start active channels
     active_channels = []

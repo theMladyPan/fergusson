@@ -9,10 +9,12 @@ from src.agent.skills import Skill, SkillRegistry
 from src.config import app_config
 from src.tools.bash import run_bash_command
 from src.tools.fs import list_files, read_file_content, write_file_content
+from src.broker.bus import MessageBus
 
 
 class AgentManager:
-    def __init__(self):
+    def __init__(self, bus: MessageBus):
+        self.bus = bus
         # Initialize the model based on provider
         if app_config.llm.provider == "openai":
             api_key = app_config.llm.api_key or os.environ.get(app_config.llm.api_key_env)
@@ -56,6 +58,51 @@ class AgentManager:
         self.core_agent.tool_plain(list_files)
         self.core_agent.tool_plain(read_file_content)
         self.core_agent.tool_plain(write_file_content)
+
+        @self.core_agent.tool_plain
+        async def send_message_to_channel(channel: str, message: str, chat_id: str) -> str:
+            """
+            Sends a message proactively to a specific channel and chat_id (e.g., discord, cli).
+            Use get_recent_chats to find the correct chat_id if you don't know it.
+            """
+            from src.broker.schemas import OutboundMessage
+            reply = OutboundMessage(
+                chat_id=chat_id,
+                content=message,
+                channel=channel,
+            )
+            await self.bus.publish_outbound(reply)
+            return f"Message successfully sent to {channel} (chat_id: {chat_id})"
+
+        @self.core_agent.tool_plain
+        async def get_recent_chats() -> str:
+            """
+            Returns a list of recent chat_ids and their channels from the database history.
+            Use this to find the correct chat_id when you need to send a message to another channel.
+            """
+            from src.db.session import async_session
+            from sqlalchemy.future import select
+            from src.db.models import Message
+            async with async_session() as session:
+                # Get distinct chat_ids and their recent usage
+                result = await session.execute(
+                    select(Message.chat_id, Message.channel, Message.timestamp)
+                    .order_by(Message.timestamp.desc())
+                    .limit(50)
+                )
+                messages = result.all()
+                
+                # Deduplicate by chat_id, preserving the most recent timestamp
+                seen = set()
+                recent_chats = []
+                for msg in messages:
+                    if msg.chat_id not in seen:
+                        seen.add(msg.chat_id)
+                        recent_chats.append(f"Channel: {msg.channel}, Chat ID: {msg.chat_id}, Last Active: {msg.timestamp}")
+                        
+                if not recent_chats:
+                    return "No recent chats found."
+                return "\n".join(recent_chats)
 
         @self.core_agent.tool
         async def delegate_to_expert(ctx: RunContext[None], expert_id: str, task: str) -> str:

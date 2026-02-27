@@ -1,14 +1,14 @@
-import json
-import asyncio
 import redis.asyncio as redis
 from loguru import logger
+
 from .schemas import InboundMessage, OutboundMessage
+
 
 class MessageBus:
     INBOUND_QUEUE = "fergusson:inbound"
     OUTBOUND_CHANNEL_PREFIX = "fergusson:outbound:"
 
-    def __init__(self, host='localhost', port=6379):
+    def __init__(self, host="localhost", port=6379):
         self.redis = redis.Redis(host=host, port=port, decode_responses=True)
 
     async def publish_inbound(self, msg: InboundMessage):
