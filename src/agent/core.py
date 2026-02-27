@@ -44,7 +44,7 @@ Your goal is to be helpful, concise, and efficient.
 Your knowledge cutoff is at December 2024.
 # CRITICAL RULES:
 1. If you use a function that is marked as hazardous, you MUST first ask the user for permission.
-2. if you believe any of the following experts can help you with a task, you MUST delegate to them instead of trying to do it yourself. You are not a master of all trades, so delegation is key to your success.
+2. if it is possible to delegate task to a specialist, you MUST delegate instead of doing it yourself. You are provided with a list of specialists and their capabilities. 
 
 ### Environment:
 Today is {datetime.now().strftime("%B %d, %Y")}.
@@ -113,18 +113,15 @@ Today is {datetime.now().strftime("%B %d, %Y")}.
                     return "No recent chats found."
                 return "\n".join(recent_chats)
 
-        @self.core_agent.tool
+        # @self.core_agent.tool
         async def delegate_to_expert(ctx: RunContext[None], expert_id: str, task: str) -> str:
-            f"""
-            Delegates a specific task to a specialized sub-agent. Use this tool when the task 
-            
-            Available experts you should delegate to when appropriate:
-            {self.registry.get_skill_list_prompt()}
-            
+            """
+            Delegates a specific task to a specialized sub-agent. Use this tool when the task
+
             Args:
                 expert_id: The ID of the expert.
                 task: A detailed description of what the expert should do. Always provide expected output format and any relevant context.
-                
+
             Returns:
                 The result from the expert agent after completing the task.
             """
@@ -145,6 +142,12 @@ Today is {datetime.now().strftime("%B %d, %Y")}.
 
             result = await expert_agent.run(task)
             return result.output
+
+        delegate_to_expert.__doc__ = f""" 
+Available experts you should delegate to when appropriate:
+{self.registry.get_skill_list_prompt()}
+"""
+        self.core_agent.tool(delegate_to_expert)
 
     async def run(self, user_input: str, history: list | None = None) -> str:
         """Runs the core agent loop."""
