@@ -1,50 +1,54 @@
-from typing import List, Optional
+import os
+
+from loguru import logger
 from pydantic_ai import Agent, RunContext
-from src.agent.skills import SkillRegistry, Skill
+from pydantic_ai.models.openai import OpenAIChatModel
+from pydantic_ai.providers.openai import OpenAIProvider
+
+from src.agent.skills import Skill, SkillRegistry
+from src.config import app_config
 from src.tools.bash import run_bash_command
 from src.tools.fs import list_files, read_file_content, write_file_content
-from loguru import logger
 
-import os
-from pydantic_ai.models.openai import OpenAIModel
-from openai import AsyncOpenAI
-from src.config import app_config
 
 class AgentManager:
     def __init__(self):
         # Initialize the model based on provider
         if app_config.llm.provider == "openai":
             api_key = app_config.llm.api_key or os.environ.get(app_config.llm.api_key_env)
-            
+
             # Create a custom AsyncOpenAI client
-            client = AsyncOpenAI(
+            provider = OpenAIProvider(
+                base_url=app_config.llm.base_url,
                 api_key=api_key,
-                base_url=app_config.llm.base_url
             )
-            
-            self.model = OpenAIModel(
-                app_config.llm.model,
-                openai_client=client
+
+            self.model = OpenAIChatModel(
+                model_name=app_config.llm.model,
+                provider=provider,
             )
         else:
             # Fallback or other providers
             self.model = f"{app_config.llm.provider}:{app_config.llm.model}"
-            
+
         self.registry = SkillRegistry()
         self.registry.discover()
 
+        system_prompt = (
+            "You are Fergusson, an omnipotent personal assistant. "
+            "You have full access to the user's filesystem and bash shell. "
+            "Your goal is to be helpful, concise, and efficient."
+            "CRITICAL RULES:"
+            "1. If you use a bool that is marked as hazardous, you MUST first ask the user for permission."
+            "2. You can delegate complex specialized tasks to 'experts' (sub-agents) using the delegate_to_expert tool."
+            f"{self.registry.get_skill_list_prompt()}"
+        )
+        logger.debug(f"System prompt for Core Agent:\n{system_prompt}")
+
         # Define the Core Agent
         self.core_agent = Agent(
-            model,
-            system_prompt=(
-                "You are Fergusson, an omnipotent personal assistant. "
-                "You have full access to the user's filesystem and bash shell. "
-                "Your goal is to be helpful, concise, and efficient."
-                "CRITICAL RULES:"
-                "1. If you use a bool that is marked as hazardous, you MUST first ask the user for permission."
-                "2. You can delegate complex specialized tasks to 'experts' (sub-agents) using the delegate_to_expert tool."
-                f"{self.registry.get_skill_list_prompt()}"
-            ),
+            self.model,
+            system_prompt=system_prompt,
         )
 
         # Register tools to Core Agent
@@ -59,7 +63,7 @@ class AgentManager:
             Delegates a specific task to a specialized sub-agent.
 
             Args:
-                expert_id: The ID of the expert (e.g., 'email_reader').
+                expert_id: The ID of the expert.
                 task: A detailed description of what the expert should do.
             """
             skill = self.registry.skills.get(expert_id)
@@ -78,10 +82,10 @@ class AgentManager:
             expert_agent.tool_plain(write_file_content)
 
             result = await expert_agent.run(task)
-            return result.data
+            return result.output
 
-    async def run(self, user_input: str, history: List = None) -> str:
+    async def run(self, user_input: str, history: list | None = None) -> str:
         """Runs the core agent loop."""
         # Note: History conversion to pydantic-ai format would happen here
         result = await self.core_agent.run(user_input, message_history=history)
-        return result.data
+        return result.output

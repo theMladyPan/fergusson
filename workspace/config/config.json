@@ -10,7 +10,7 @@
       "enabled": true
     },
     "discord": {
-      "enabled": false
+      "enabled": true
     },
     "cron": {
       "enabled": false
@@ -19,7 +19,10 @@
   "mcp_servers": {
     "example_stdio": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-everything"],
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-everything"
+      ],
       "env": {},
       "tool_timeout": 30
     },
