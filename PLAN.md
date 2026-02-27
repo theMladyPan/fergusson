@@ -63,11 +63,23 @@ fergusson/
 - [x] Create a mock CLI publisher for testing.
 
 ### Phase 3: Core Agent & Tools
-- [ ] Implement Core Pydantic-AI Agent.
-- [ ] Build Bash and FS tools with permission guardrails.
-- [ ] Implement Skill discovery and dynamic Sub-Agent factory.
+- [x] Implement Core Pydantic-AI Agent.
+- [x] Build Bash and FS tools with permission guardrails.
+- [x] Implement Skill discovery and dynamic Sub-Agent factory.
 
 ### Phase 4: A2A & Assembly
-- [ ] Implement A2A delegation logic.
-- [ ] Create the main execution loop in `main.py`.
-- [ ] Final end-to-end testing (Discord -> Core -> Sub-agent -> Discord).
+- [x] Implement A2A delegation logic.
+- [x] Create the main execution loop in `main.py`.
+- [x] Final end-to-end testing (Discord -> Core -> Sub-agent -> Discord).
+
+### Phase 5: Advanced Memory & Tooling
+- [ ] Implement Graph-based Memory using Neo4j.
+- [ ] Create a local scratchpad (MEMORY.md) for transient context.
+- [ ] Upgrade the CLI tool (richer TUI/UX).
+- [ ] Implement tool-call visibility (notifying the user about tool executions).
+- [ ] Expand tools to include web search and general improvements.
+- [ ] Co-manage AGENTS.md (dynamic creation and updating of skills).
+
+### Phase 6: Scheduled & Background Tasks
+- [ ] Implement periodic background tasks via ROUTINE.md.
+- [ ] Create a Cron-like scheduler for executing tasks at exact times.

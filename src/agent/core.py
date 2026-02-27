@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 
 from loguru import logger
 from pydantic_ai import Agent, RunContext
@@ -6,10 +7,10 @@ from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
 from src.agent.skills import Skill, SkillRegistry
+from src.broker.bus import MessageBus
 from src.config import app_config
 from src.tools.bash import run_bash_command
 from src.tools.fs import list_files, read_file_content, write_file_content
-from src.broker.bus import MessageBus
 
 
 class AgentManager:
@@ -36,15 +37,20 @@ class AgentManager:
         self.registry = SkillRegistry()
         self.registry.discover()
 
-        system_prompt = (
-            "You are Fergusson, an omnipotent personal assistant. "
-            "You have full access to the user's filesystem and bash shell. "
-            "Your goal is to be helpful, concise, and efficient."
-            "CRITICAL RULES:"
-            "1. If you use a bool that is marked as hazardous, you MUST first ask the user for permission."
-            "2. You can delegate complex specialized tasks to 'experts' (sub-agents) using the delegate_to_expert tool."
-            f"{self.registry.get_skill_list_prompt()}"
-        )
+        system_prompt = f"""
+You are Fergusson, an omnipotent personal assistant. 
+You have full access to the user's filesystem and bash shell. 
+Your goal is to be helpful, concise, and efficient.
+Your knowledge cutoff is at December 2024.
+# CRITICAL RULES:
+1. If you use a bool that is marked as hazardous, you MUST first ask the user for permission.
+2. if you believe any of the following experts can help you with a task, you MUST delegate to them instead of trying to do it yourself. You are not a master of all trades, so delegation is key to your success.
+## Available Experts:
+{self.registry.get_skill_list_prompt()}.
+
+### Environment:
+Today is {datetime.now().strftime("%B %d, %Y")}.
+"""
         logger.debug(f"System prompt for Core Agent:\n{system_prompt}")
 
         # Define the Core Agent
@@ -66,6 +72,7 @@ class AgentManager:
             Use get_recent_chats to find the correct chat_id if you don't know it.
             """
             from src.broker.schemas import OutboundMessage
+
             reply = OutboundMessage(
                 chat_id=chat_id,
                 content=message,
@@ -80,9 +87,11 @@ class AgentManager:
             Returns a list of recent chat_ids and their channels from the database history.
             Use this to find the correct chat_id when you need to send a message to another channel.
             """
-            from src.db.session import async_session
             from sqlalchemy.future import select
+
             from src.db.models import Message
+            from src.db.session import async_session
+
             async with async_session() as session:
                 # Get distinct chat_ids and their recent usage
                 result = await session.execute(
@@ -91,15 +100,17 @@ class AgentManager:
                     .limit(50)
                 )
                 messages = result.all()
-                
+
                 # Deduplicate by chat_id, preserving the most recent timestamp
                 seen = set()
                 recent_chats = []
                 for msg in messages:
                     if msg.chat_id not in seen:
                         seen.add(msg.chat_id)
-                        recent_chats.append(f"Channel: {msg.channel}, Chat ID: {msg.chat_id}, Last Active: {msg.timestamp}")
-                        
+                        recent_chats.append(
+                            f"Channel: {msg.channel}, Chat ID: {msg.chat_id}, Last Active: {msg.timestamp}"
+                        )
+
                 if not recent_chats:
                     return "No recent chats found."
                 return "\n".join(recent_chats)
