@@ -3,5 +3,7 @@
 .history
 __pycache__
 *.pyc
-workspace/
-
+workspace/*
+!workspace/skills/
+workspace/skills/*
+!workspace/skills/routine-curator/

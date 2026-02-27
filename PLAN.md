@@ -79,8 +79,8 @@ fergusson/
 - [ ] Implement tool-call visibility (notifying the user about tool executions).
 - [x] Expand tools to include web content fetching (httpx + markitdown).
 - [ ] Expand tools to include web search.
-- [ ] Co-manage AGENTS.md (dynamic creation and updating of skills).
+- [x] Co-manage AGENTS.md (dynamic creation and updating of skills).
 
 ### Phase 6: Scheduled & Background Tasks
-- [ ] Implement periodic background tasks via ROUTINE.md.
-- [ ] Create a Cron-like scheduler for executing tasks at exact times.
+- [x] Implement periodic background tasks via ROUTINE.md.
+- [x] Create a Cron-like scheduler for executing tasks at exact times.

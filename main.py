@@ -96,6 +96,53 @@ async def agent_loop(bus: MessageBus, manager: AgentManager, archiver: Archiver)
             await asyncio.sleep(1)
 
 
+async def routine_loop(bus: MessageBus, interval: int = 3600):
+    """
+    Periodically reads workspace/ROUTINE.md and injects it as a system message.
+    """
+    from pathlib import Path
+    from datetime import datetime
+
+    logfire.info(f"Routine loop started with interval {interval}s")
+    
+    # Wait a bit for the system to fully initialize
+    await asyncio.sleep(10)
+
+    while True:
+        try:
+            routine_path = Path("ROUTINE.md")
+            if not routine_path.exists():
+                logfire.warning("ROUTINE.md not found, skipping routine check.")
+            else:
+                content = routine_path.read_text()
+                
+                # The agent will parse this.
+                # We must be clear this is a system instruction to check routines.
+                
+                current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                prompt = f"SYSTEM ALERT: It is now {current_time}.\n\nReview the following ROUTINE.md and execute any tasks that are due now:\n\n{content}"
+
+                msg = InboundMessage(
+                    sender_id="system_cron",
+                    username="System Cron",
+                    chat_id="cron_chat",
+                    content=prompt,
+                    channel="cron",
+                )
+                
+                logfire.info("Triggering routine execution.")
+                await bus.publish_inbound(msg)
+            
+            # Wait for next interval
+            await asyncio.sleep(interval)
+            
+        except asyncio.CancelledError:
+            break
+        except Exception as e:
+            logfire.error(f"Routine loop error: {e}")
+            await asyncio.sleep(60)
+
+
 async def main():
     # Setup logging
     logfire.configure(
@@ -135,6 +182,9 @@ async def main():
 
     # Start the real agent loop
     agent_task = asyncio.create_task(agent_loop(bus, manager, archiver))
+    
+    # Start the routine loop
+    routine_task = asyncio.create_task(routine_loop(bus))
 
     logfire.notice("System fully operational. Press Ctrl+C to stop.")
 
@@ -149,7 +199,8 @@ async def main():
         for channel in active_channels:
             await channel.stop()
         agent_task.cancel()
-        await asyncio.gather(agent_task, return_exceptions=True)
+        routine_task.cancel()
+        await asyncio.gather(agent_task, routine_task, return_exceptions=True)
 
 
 if __name__ == "__main__":
