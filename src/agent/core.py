@@ -43,10 +43,8 @@ You have full access to the user's filesystem and bash shell.
 Your goal is to be helpful, concise, and efficient.
 Your knowledge cutoff is at December 2024.
 # CRITICAL RULES:
-1. If you use a bool that is marked as hazardous, you MUST first ask the user for permission.
+1. If you use a function that is marked as hazardous, you MUST first ask the user for permission.
 2. if you believe any of the following experts can help you with a task, you MUST delegate to them instead of trying to do it yourself. You are not a master of all trades, so delegation is key to your success.
-## Available Experts:
-{self.registry.get_skill_list_prompt()}.
 
 ### Environment:
 Today is {datetime.now().strftime("%B %d, %Y")}.
@@ -117,12 +115,18 @@ Today is {datetime.now().strftime("%B %d, %Y")}.
 
         @self.core_agent.tool
         async def delegate_to_expert(ctx: RunContext[None], expert_id: str, task: str) -> str:
-            """
-            Delegates a specific task to a specialized sub-agent.
-
+            f"""
+            Delegates a specific task to a specialized sub-agent. Use this tool when the task 
+            
+            Available experts you should delegate to when appropriate:
+            {self.registry.get_skill_list_prompt()}
+            
             Args:
                 expert_id: The ID of the expert.
-                task: A detailed description of what the expert should do.
+                task: A detailed description of what the expert should do. Always provide expected output format and any relevant context.
+                
+            Returns:
+                The result from the expert agent after completing the task.
             """
             skill = self.registry.skills.get(expert_id)
             if not skill:
