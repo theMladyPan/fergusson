@@ -72,25 +72,33 @@ async def main():
         scrubbing=False if settings.debug else None,
     )
 
-    # Initialize DB
-    await init_db()
+    with logfire.span("Starting Ferguson Agent") as span:
+        # change working directory to the workspace folder
+        # this way all file paths are relative to the workspace
+        import os
 
-    bus = MessageBus()
-    manager = AgentManager(bus)
+        os.chdir(settings.workspace_folder)
+        logfire.info(f"Changed working directory to {settings.workspace_folder}")
 
-    # Initialize and start active channels
-    active_channels = []
+        # Initialize DB
+        await init_db()
 
-    if "discord" in app_config.channels and app_config.channels["discord"].enabled:
-        discord_channel = DiscordChannel(bus)
-        active_channels.append(discord_channel)
-        await discord_channel.start()
-        logfire.info("Discord channel enabled and started.")
+        bus = MessageBus()
+        manager = AgentManager(bus)
+
+        # Initialize and start active channels
+        active_channels = []
+
+        if "discord" in app_config.channels and app_config.channels["discord"].enabled:
+            discord_channel = DiscordChannel(bus)
+            active_channels.append(discord_channel)
+            await discord_channel.start()
+            logfire.info("Discord channel enabled and started.")
 
     # Start the real agent loop
     agent_task = asyncio.create_task(agent_loop(bus, manager))
 
-    logfire.info("System fully operational. Press Ctrl+C to stop.")
+    logfire.notice("System fully operational. Press Ctrl+C to stop.")
 
     try:
         # Keep the main loop running

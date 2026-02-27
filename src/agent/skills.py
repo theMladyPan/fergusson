@@ -1,8 +1,10 @@
 from pathlib import Path
-import re
+
 import logfire
 import yaml
 from pydantic import BaseModel
+
+from src.config import settings
 
 
 class SkillMetadata(BaseModel):
@@ -19,12 +21,13 @@ class Skill(BaseModel):
 
 
 class SkillRegistry:
-    def __init__(self, skills_dir: str = "workspace/skills"):
-        self.skills_dir = Path(skills_dir)
+    def __init__(self, skills_dir: str | Path = settings.workspace_folder / "skills"):
+        self.skills_dir = skills_dir if isinstance(skills_dir, Path) else Path(skills_dir)
         self.skills: dict[str, Skill] = {}
 
     def _parse_skill_md(self, content: str) -> tuple[dict, str]:
         """Parses YAML frontmatter from the beginning of the Markdown content."""
+
         if content.startswith("---\n"):
             end_idx = content.find("\n---\n", 4)
             if end_idx != -1:
@@ -33,12 +36,15 @@ class SkillRegistry:
                 try:
                     metadata = yaml.safe_load(frontmatter)
                     return metadata if isinstance(metadata, dict) else {}, instructions
+
                 except Exception:
                     pass
+
         return {}, content
 
     def discover(self):
         """Scans the skills directory for valid skill packages."""
+
         if not self.skills_dir.exists():
             return
 
@@ -47,7 +53,6 @@ class SkillRegistry:
                 continue
 
             skill_md = skill_path / "SKILL.md"
-            meta_yaml = skill_path / "agents" / "openai.yaml"
 
             if skill_md.exists():
                 raw_content = skill_md.read_text(encoding="utf-8")
@@ -62,6 +67,7 @@ class SkillRegistry:
                     metadata_dict["description"] = frontmatter_meta.get("description", metadata_dict["description"])
 
                 # 2. Fallback to openai.yaml if frontmatter didn't provide specific fields
+                meta_yaml = skill_path / "agents" / "openai.yaml"
                 if meta_yaml.exists():
                     try:
                         with open(meta_yaml, "r") as f:
@@ -83,7 +89,8 @@ class SkillRegistry:
                 logfire.info(f"Discovered skill: {skill_id} - {metadata_dict['description']}")
 
     def get_skill_list_prompt(self) -> str:
-        """Returns a markdown table describing available sub-agents for the core agent's context."""
+        """Return a markdown table describing available sub-agents for the core agent's context."""
+
         if not self.skills:
             return "No specialized sub-agents available."
 

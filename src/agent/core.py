@@ -1,21 +1,25 @@
 import os
 from datetime import datetime
+from pathlib import Path
 
 import logfire
 from httpx import AsyncClient, HTTPStatusError
-from pydantic_ai import Agent, RunContext
+from jinja2 import Template
+from pydantic_ai import Agent, ModelRetry, RunContext
 from pydantic_ai.models.google import GoogleModel
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.google import GoogleProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.retries import AsyncTenacityTransport, RetryConfig, wait_retry_after
+from sqlalchemy.future import select
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from src.agent.skills import SkillRegistry
 from src.broker.bus import MessageBus
 from src.config import app_config, settings
-from src.tools.bash import run_bash_command
-from src.tools.fs import list_files, read_file_content, write_file_content
+from src.db.models import Message
+from src.db.session import async_session
+from src.tools import all_tools
 
 
 def create_retrying_client() -> AsyncClient:
@@ -68,6 +72,9 @@ class AgentManager:
                 api_key=api_key,
                 http_client=retrying_client,
             )
+
+            # This is required for prompts and completions to be captured in the spans
+            os.environ["OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"] = "true"
             logfire.instrument_openai(openai_client=provider.client)
 
             return OpenAIChatModel(
@@ -101,32 +108,32 @@ class AgentManager:
         self.registry = SkillRegistry()
         self.registry.discover()
 
-        system_prompt = f"""
-You are Fergusson, an omnipotent personal assistant. 
-You have full access to the user's filesystem and bash shell. 
-Your goal is to be helpful, concise, and efficient.
-Your knowledge cutoff is at December 2024.
+        template_path = Path(__file__).parents[1] / "prompt" / "core.j2"
+        with open(template_path, "r") as f:
+            template = Template(f.read())
 
-# CRITICAL RULES:
-- if it is possible to delegate task to a specialist, you MUST delegate using 'delegate_to_expert' tool instead of doing it yourself. You are provided with a list of specialists and their capabilities. 
+        with open(settings.workspace_folder / "AGENTS.md", "r") as f:
+            agents_md_content = f.read()
 
-### Environment:
-Today is {datetime.now().strftime("%B %d, %Y")}.
-"""
-        logfire.debug(f"System prompt for Core Agent:\n{system_prompt}")
+        with open(settings.workspace_folder / "MEMORY.md", "r") as f:
+            memory_md_content = f.read()
+
+        system_prompt = template.render(
+            current_date=datetime.now().strftime("%B %d, %Y"),
+            agents_md_content=agents_md_content,
+            memory_md_content=memory_md_content,
+        )
 
         # Define the Core Agent
         self.core_agent = Agent(
             model=self.model,
             instructions=system_prompt,
-            tool_timeout=20,
+            tool_timeout=settings.agent.tool_timeout,
+            retries=settings.agent.retries,
         )
 
-        # Register tools to Core Agent
-        self.core_agent.tool_plain(run_bash_command)
-        self.core_agent.tool_plain(list_files)
-        self.core_agent.tool_plain(read_file_content)
-        self.core_agent.tool_plain(write_file_content)
+        for tool in all_tools:
+            self.core_agent.tool_plain(tool)
 
         @self.core_agent.tool_plain
         async def send_message_to_channel(channel: str, message: str, chat_id: str) -> str:
@@ -150,10 +157,6 @@ Today is {datetime.now().strftime("%B %d, %Y")}.
             Returns a list of recent chat_ids and their channels from the database history.
             Use this to find the correct chat_id when you need to send a message to another channel.
             """
-            from sqlalchemy.future import select
-
-            from src.db.models import Message
-            from src.db.session import async_session
 
             async with async_session() as session:
                 # Get distinct chat_ids and their recent usage
@@ -178,7 +181,6 @@ Today is {datetime.now().strftime("%B %d, %Y")}.
                     return "No recent chats found."
                 return "\n".join(recent_chats)
 
-        # @self.core_agent.tool
         async def delegate_to_expert(ctx: RunContext[None], expert_id: str, task: str) -> str:
             """
             Delegates a specific task to a specialized sub-agent. Use this tool if the request topic is covered by one of the experts mentioned below.
@@ -194,32 +196,42 @@ Today is {datetime.now().strftime("%B %d, %Y")}.
             """
             skill = self.registry.skills.get(expert_id)
             if not skill:
-                return f"Error: Expert '{expert_id}' not found."
-
-            logfire.info(f"Delegating task to expert '{expert_id}': {task}")
+                raise ModelRetry(
+                    f"Expert '{expert_id}' not found. Please check the list of available experts and their "
+                    "capabilities in the tool's documentation."
+                )
 
             # Create a dynamic sub-agent for this skill using the fast model
-            expert_agent = Agent(self.fast_model, system_prompt=skill.instructions)
+            expert_agent = Agent(
+                self.fast_model,
+                system_prompt=skill.instructions,
+                tool_timeout=settings.subagent.tool_timeout,
+                retries=settings.subagent.retries,
+            )
 
-            # Sub-agents get the same toolset for now
-            expert_agent.tool_plain(run_bash_command)
-            expert_agent.tool_plain(list_files)
-            expert_agent.tool_plain(read_file_content)
-            expert_agent.tool_plain(write_file_content)
+            # Sub-agents get the same toolset for now,
+            # NOTE: think through later if we want to limit tools for sub-agents
+            for tool in all_tools:
+                expert_agent.tool_plain(tool)
 
-            with logfire.span(f"Running expert agent '{expert_id}'", task=task) as span:
+            with logfire.span(f"Running expert agent '{expert_id}'", task=task) as _:
                 result = await expert_agent.run(task)
+
             return result.output
 
         delegate_to_expert.__doc__ = f""" 
-Available experts you should delegate to when appropriate:
+Available experts:
 {self.registry.get_skill_list_prompt()}
 """
         self.core_agent.tool(delegate_to_expert)
 
     async def run(self, user_input: str, history: list | None = None) -> str:
         """Runs the core agent loop."""
+
         with logfire.span("core_agent_run", input=user_input):
-            # Note: History conversion to pydantic-ai format would happen here
-            result = await self.core_agent.run(user_input, message_history=history)
+            result = await self.core_agent.run(
+                user_input,
+                message_history=history,
+            )
+
             return result.output
