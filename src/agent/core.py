@@ -6,7 +6,7 @@ from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
 
-from src.agent.skills import Skill, SkillRegistry
+from src.agent.skills import SkillRegistry
 from src.broker.bus import MessageBus
 from src.config import app_config
 from src.tools.bash import run_bash_command
@@ -42,9 +42,9 @@ You are Fergusson, an omnipotent personal assistant.
 You have full access to the user's filesystem and bash shell. 
 Your goal is to be helpful, concise, and efficient.
 Your knowledge cutoff is at December 2024.
+
 # CRITICAL RULES:
-1. If you use a function that is marked as hazardous, you MUST first ask the user for permission.
-2. if it is possible to delegate task to a specialist, you MUST delegate instead of doing it yourself. You are provided with a list of specialists and their capabilities. 
+- if it is possible to delegate task to a specialist, you MUST delegate using 'delegate_to_expert' tool instead of doing it yourself. You are provided with a list of specialists and their capabilities. 
 
 ### Environment:
 Today is {datetime.now().strftime("%B %d, %Y")}.
@@ -116,7 +116,9 @@ Today is {datetime.now().strftime("%B %d, %Y")}.
         # @self.core_agent.tool
         async def delegate_to_expert(ctx: RunContext[None], expert_id: str, task: str) -> str:
             """
-            Delegates a specific task to a specialized sub-agent. Use this tool when the task
+            Delegates a specific task to a specialized sub-agent. Use this tool if the request topic is covered by one of the experts mentioned below.
+
+            You can and should use this tool without asking for permission.
 
             Args:
                 expert_id: The ID of the expert.

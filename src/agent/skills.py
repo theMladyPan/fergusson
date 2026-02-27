@@ -83,11 +83,18 @@ class SkillRegistry:
                 logfire.info(f"Discovered skill: {skill_id} - {metadata_dict['description']}")
 
     def get_skill_list_prompt(self) -> str:
-        """Returns a string describing available sub-agents for the core agent's context."""
+        """Returns a markdown table describing available sub-agents for the core agent's context."""
         if not self.skills:
             return "No specialized sub-agents available."
 
-        lines = ["Available specialized experts:"]
+        lines = [
+            "Available specialized experts:",
+            "",
+            "| Expert ID | Description |",
+            "|-----------|-------------|",
+        ]
         for s in self.skills.values():
-            lines.append(f"- {s.id}: {s.metadata.description}")
+            # Escape pipe characters to maintain table structure
+            description = s.metadata.description.replace("|", "\\|")
+            lines.append(f"| {s.id} | {description} |")
         return "\n".join(lines)
