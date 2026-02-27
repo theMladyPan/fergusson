@@ -1,6 +1,6 @@
 from pathlib import Path
 import re
-from loguru import logger
+import logfire
 import yaml
 from pydantic import BaseModel
 
@@ -80,7 +80,7 @@ class SkillRegistry:
                     metadata=SkillMetadata(**metadata_dict),
                     path=skill_path,
                 )
-                logger.info(f"Discovered skill: {skill_id} - {metadata_dict['description']}")
+                logfire.info(f"Discovered skill: {skill_id} - {metadata_dict['description']}")
 
     def get_skill_list_prompt(self) -> str:
         """Returns a string describing available sub-agents for the core agent's context."""

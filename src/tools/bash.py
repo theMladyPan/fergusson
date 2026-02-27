@@ -2,7 +2,7 @@ import asyncio
 import shlex
 from typing import Tuple
 
-from loguru import logger
+import logfire
 
 HAZARDOUS_PATTERNS = ["rm ", "sudo ", "mv ", "chmod ", "chown ", "mkfs ", "dd ", "> /dev/", ":(){ :|:& };:", "rmdir "]
 
@@ -27,7 +27,7 @@ async def run_bash_command(command: str) -> str:
             "You MUST explicitly ask the user for permission before I can execute this."
         )
 
-    logger.info(f"Executing bash command: {command}")
+    logfire.info(f"Executing bash command: {command}")
 
     process = await asyncio.create_subprocess_shell(
         command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE

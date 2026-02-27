@@ -5,7 +5,7 @@ from typing import Any
 
 import httpx
 import websockets
-from loguru import logger
+import logfire
 
 from src.broker.schemas import InboundMessage, OutboundMessage
 from src.broker.bus import MessageBus
@@ -56,23 +56,23 @@ class DiscordChannel(BaseChannel):
     async def _start_ingress(self) -> None:
         """Start the Discord gateway connection."""
         if not self.config.token:
-            logger.error("Discord bot token not configured")
+            logfire.error("Discord bot token not configured")
             return
 
         self._http = httpx.AsyncClient(timeout=30.0)
 
         while self._running:
             try:
-                logger.info("Connecting to Discord gateway...")
+                logfire.info("Connecting to Discord gateway...")
                 async with websockets.connect(self.config.gateway_url) as ws:
                     self._ws = ws
                     await self._gateway_loop()
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                logger.warning(f"Discord gateway error: {e}")
+                logfire.warning(f"Discord gateway error: {e}")
                 if self._running:
-                    logger.info("Reconnecting to Discord gateway in 5 seconds...")
+                    logfire.info("Reconnecting to Discord gateway in 5 seconds...")
                     await asyncio.sleep(5)
 
     async def _stop_ingress(self) -> None:
@@ -93,7 +93,7 @@ class DiscordChannel(BaseChannel):
     async def send(self, msg: OutboundMessage) -> None:
         """Send a message through Discord REST API."""
         if not self._http:
-            logger.warning("Discord HTTP client not initialized")
+            logfire.warning("Discord HTTP client not initialized")
             return
 
         url = f"{DISCORD_API_BASE}/channels/{msg.chat_id}/messages"
@@ -130,14 +130,14 @@ class DiscordChannel(BaseChannel):
                 if response.status_code == 429:
                     data = response.json()
                     retry_after = float(data.get("retry_after", 1.0))
-                    logger.warning(f"Discord rate limited, retrying in {retry_after}s")
+                    logfire.warning(f"Discord rate limited, retrying in {retry_after}s")
                     await asyncio.sleep(retry_after)
                     continue
                 response.raise_for_status()
                 return True
             except Exception as e:
                 if attempt == 2:
-                    logger.error(f"Error sending Discord message: {e}")
+                    logfire.error(f"Error sending Discord message: {e}")
                 else:
                     await asyncio.sleep(1)
         return False
@@ -151,7 +151,7 @@ class DiscordChannel(BaseChannel):
             try:
                 data = json.loads(raw)
             except json.JSONDecodeError:
-                logger.warning(f"Invalid JSON from Discord gateway: {raw[:100]}")
+                logfire.warning(f"Invalid JSON from Discord gateway: {raw[:100]}")
                 continue
 
             op = data.get("op")
@@ -168,16 +168,16 @@ class DiscordChannel(BaseChannel):
                 await self._start_heartbeat(interval_ms / 1000)
                 await self._identify()
             elif op == 0 and event_type == "READY":
-                logger.info("Discord gateway READY")
+                logfire.info("Discord gateway READY")
             elif op == 0 and event_type == "MESSAGE_CREATE":
                 await self._handle_message_create(payload)
             elif op == 7:
                 # RECONNECT: exit loop to reconnect
-                logger.info("Discord gateway requested reconnect")
+                logfire.info("Discord gateway requested reconnect")
                 break
             elif op == 9:
                 # INVALID_SESSION: reconnect
-                logger.warning("Discord gateway invalid session")
+                logfire.warning("Discord gateway invalid session")
                 break
 
     async def _identify(self) -> None:
@@ -210,7 +210,7 @@ class DiscordChannel(BaseChannel):
                 try:
                     await self._ws.send(json.dumps(payload))
                 except Exception as e:
-                    logger.warning(f"Discord heartbeat failed: {e}")
+                    logfire.warning(f"Discord heartbeat failed: {e}")
                     break
                 await asyncio.sleep(interval_s)
 
@@ -252,7 +252,7 @@ class DiscordChannel(BaseChannel):
                 media_paths.append(str(file_path))
                 content_parts.append(f"[attachment: {file_path}]")
             except Exception as e:
-                logger.warning(f"Failed to download Discord attachment: {e}")
+                logfire.warning(f"Failed to download Discord attachment: {e}")
                 content_parts.append(f"[attachment: {filename} - download failed]")
 
         reply_to = (payload.get("referenced_message") or {}).get("id")
@@ -288,7 +288,7 @@ class DiscordChannel(BaseChannel):
                 except asyncio.CancelledError:
                     return
                 except Exception as e:
-                    logger.debug(f"Discord typing indicator failed for {channel_id}: {e}")
+                    logfire.debug(f"Discord typing indicator failed for {channel_id}: {e}")
                     return
                 await asyncio.sleep(8)
 

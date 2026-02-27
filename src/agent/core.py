@@ -1,7 +1,7 @@
 import os
 from datetime import datetime
 
-from loguru import logger
+import logfire
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.openai import OpenAIProvider
@@ -49,12 +49,12 @@ Your knowledge cutoff is at December 2024.
 ### Environment:
 Today is {datetime.now().strftime("%B %d, %Y")}.
 """
-        logger.debug(f"System prompt for Core Agent:\n{system_prompt}")
+        logfire.debug(f"System prompt for Core Agent:\n{system_prompt}")
 
         # Define the Core Agent
         self.core_agent = Agent(
-            self.model,
-            system_prompt=system_prompt,
+            model=self.model,
+            instructions=system_prompt,
         )
 
         # Register tools to Core Agent
@@ -132,7 +132,7 @@ Today is {datetime.now().strftime("%B %d, %Y")}.
             if not skill:
                 return f"Error: Expert '{expert_id}' not found."
 
-            logger.info(f"Delegating task to expert '{expert_id}': {task}")
+            logfire.info(f"Delegating task to expert '{expert_id}': {task}")
 
             # Create a dynamic sub-agent for this skill
             expert_agent = Agent(self.model, system_prompt=skill.instructions)
@@ -148,6 +148,7 @@ Today is {datetime.now().strftime("%B %d, %Y")}.
 
     async def run(self, user_input: str, history: list | None = None) -> str:
         """Runs the core agent loop."""
-        # Note: History conversion to pydantic-ai format would happen here
-        result = await self.core_agent.run(user_input, message_history=history)
-        return result.output
+        with logfire.span("core_agent_run", input=user_input):
+            # Note: History conversion to pydantic-ai format would happen here
+            result = await self.core_agent.run(user_input, message_history=history)
+            return result.output

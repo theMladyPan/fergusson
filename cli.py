@@ -1,7 +1,7 @@
 import asyncio
 import sys
 
-from loguru import logger
+import logfire
 from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
@@ -100,7 +100,7 @@ class FergussonCLI(App):
                         await container.mount(agent_msg)
                         agent_msg.scroll_visible()
                     except Exception as e:
-                        logger.error(f"Failed to process outbound message: {e}")
+                        logfire.error(f"Failed to process outbound message: {e}")
         except asyncio.CancelledError:
             pass
         finally:
@@ -138,10 +138,17 @@ class FergussonCLI(App):
 
 
 if __name__ == "__main__":
-    # Suppress verbose loguru output in CLI mode so it doesn't break Textual rendering
-    # Instead, dump logs to a local file for debugging if necessary.
-    logger.remove()
-    logger.add("workspace/cli.log", format="{time} {level} {message}", level="DEBUG")
+    from src.config import settings
+
+    logfire.configure(
+        token=settings.logfire_token,
+        send_to_logfire="if-token-present",
+        distributed_tracing=False,
+        environment=settings.environment,
+        service_name=settings.project,
+        scrubbing=False if settings.debug else None,
+        console=False, # Prevent breaking Textual TUI
+    )
 
     app = FergussonCLI()
     app.run()
