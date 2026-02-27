@@ -77,7 +77,8 @@ fergusson/
 - [x] Create a local scratchpad (MEMORY.md) for transient context.
 - [x] Upgrade the CLI tool (richer TUI/UX).
 - [ ] Implement tool-call visibility (notifying the user about tool executions).
-- [ ] Expand tools to include web search and general improvements.
+- [x] Expand tools to include web content fetching (httpx + markitdown).
+- [ ] Expand tools to include web search.
 - [ ] Co-manage AGENTS.md (dynamic creation and updating of skills).
 
 ### Phase 6: Scheduled & Background Tasks
