@@ -91,8 +91,9 @@ async def agent_loop(bus: MessageBus, manager: AgentManager, archiver: Archiver)
 
         except asyncio.CancelledError:
             break
+        
         except Exception as e:
-            logfire.error(f"Agent loop error: {e}")
+            logfire.error(f"Agent loop error: {e}", _exc_info=True)
             await asyncio.sleep(1)
 
 
