@@ -29,9 +29,9 @@ def _split_message(content: str, max_len: int = MAX_MESSAGE_LEN) -> list[str]:
             chunks.append(content)
             break
         cut = content[:max_len]
-        pos = cut.rfind('\n')
+        pos = cut.rfind("\n")
         if pos <= 0:
-            pos = cut.rfind(' ')
+            pos = cut.rfind(" ")
         if pos <= 0:
             pos = max_len
         chunks.append(content[:pos])
@@ -117,9 +117,7 @@ class DiscordChannel(BaseChannel):
         finally:
             await self._stop_typing(msg.chat_id)
 
-    async def _send_payload(
-        self, url: str, headers: dict[str, str], payload: dict[str, Any]
-    ) -> bool:
+    async def _send_payload(self, url: str, headers: dict[str, str], payload: dict[str, Any]) -> bool:
         """Send a single Discord API payload with retry on rate-limit. Returns True on success."""
         if not self._http:
             return False
@@ -232,7 +230,7 @@ class DiscordChannel(BaseChannel):
 
         content_parts = [content] if content else []
         media_paths: list[str] = []
-        media_dir = Path("workspace/media")
+        media_dir = settings.workspace_folder / "media"
 
         for attachment in payload.get("attachments") or []:
             url = attachment.get("url")
@@ -270,7 +268,7 @@ class DiscordChannel(BaseChannel):
                 "message_id": str(payload.get("id", "")),
                 "guild_id": payload.get("guild_id"),
                 "reply_to": reply_to,
-            }
+            },
         )
         await self.bus.publish_inbound(msg)
 

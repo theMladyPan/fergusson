@@ -127,6 +127,7 @@ class AgentManager:
         # Define the Core Agent
         self.core_agent = Agent(
             model=self.model,
+            name="CoreAgent",
             instructions=system_prompt,
             tool_timeout=settings.agent.tool_timeout,
             retries=settings.agent.retries,
@@ -203,7 +204,8 @@ class AgentManager:
 
             # Create a dynamic sub-agent for this skill using the fast model
             expert_agent = Agent(
-                self.fast_model,
+                model=self.fast_model,
+                name=f"ExpertAgent-{expert_id}",
                 system_prompt=skill.instructions,
                 tool_timeout=settings.subagent.tool_timeout,
                 retries=settings.subagent.retries,
@@ -219,19 +221,15 @@ class AgentManager:
 
             return result.output
 
-        delegate_to_expert.__doc__ = f""" 
-Available experts:
-{self.registry.get_skill_list_prompt()}
-"""
+        delegate_to_expert.__doc__ = f"{self.registry.get_skill_list_prompt()}"
         self.core_agent.tool(delegate_to_expert)
 
     async def run(self, user_input: str, history: list | None = None) -> AgentRunResult:
         """Runs the core agent loop."""
 
-        with logfire.span("core_agent_run", input=user_input):
-            result = await self.core_agent.run(
-                user_input,
-                message_history=history,
-            )
+        result = await self.core_agent.run(
+            user_input,
+            message_history=history,
+        )
 
-            return result
+        return result

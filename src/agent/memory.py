@@ -27,7 +27,7 @@ async def get_history(session: AsyncSession, chat_id: str, limit: int = 20) -> L
     # 2. Fetch valid messages
     result = await session.execute(
         select(Message)
-        .where(Message.chat_id == chat_id, Message.is_valid == True)
+        .where(Message.chat_id == chat_id, Message.is_valid == True)  # noqa: E712
         .order_by(Message.timestamp.desc())
         .limit(limit)
     )
@@ -38,7 +38,13 @@ async def get_history(session: AsyncSession, chat_id: str, limit: int = 20) -> L
     if summary:
         # PydanticAI usually handles SystemPromptPart.
         history.append(
-            ModelRequest(parts=[SystemPromptPart(content=f"Prior Conversation Summary:\n{summary.content}")])
+            ModelRequest(
+                parts=[
+                    SystemPromptPart(
+                        content=f"# Prior Conversation Summary:\n{summary.content}\n\n---\n",
+                    ),
+                ]
+            )
         )
 
     # Reverse to get chronological order for context

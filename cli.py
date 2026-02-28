@@ -5,11 +5,11 @@ import logfire
 from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
-from textual.containers import VerticalScroll, Vertical
-from textual.widgets import Footer, Header, Input, Markdown, Static, LoadingIndicator
+from textual.containers import Vertical, VerticalScroll
+from textual.widgets import Footer, Header, Input, LoadingIndicator, Markdown, Static
 
 from src.broker.bus import MessageBus
-from src.broker.schemas import InboundMessage, OutboundMessage, TokenUsage, MessageMetadata
+from src.broker.schemas import InboundMessage, MessageMetadata, OutboundMessage, TokenUsage
 
 
 class UserMessage(Static):
