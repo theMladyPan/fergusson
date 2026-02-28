@@ -2,13 +2,16 @@ import redis.asyncio as redis
 import logfire
 
 from .schemas import InboundMessage, OutboundMessage
+from src.config import settings
 
 
 class MessageBus:
     INBOUND_QUEUE = "fergusson:inbound"
     OUTBOUND_CHANNEL_PREFIX = "fergusson:outbound:"
 
-    def __init__(self, host="localhost", port=6379):
+    def __init__(self, host=None, port=None):
+        host = host or settings.redis_host
+        port = port or settings.redis_port
         self.redis = redis.Redis(host=host, port=port, decode_responses=True)
 
     async def publish_inbound(self, msg: InboundMessage):
