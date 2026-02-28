@@ -1,0 +1,18 @@
+[Unit]
+Description=Fergusson Agent
+After=network.target
+
+[Service]
+# Start main.py using uv. Assuming uv is in PATH or specify absolute path.
+# Since it's a user service, %h expands to the user's home directory.
+# But for absolute paths to binaries, we'll use the one we found.
+ExecStart=/snap/bin/uv run main.py
+WorkingDirectory=%h/fergusson
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+# Make sure to load environment variables if not handled by uv
+EnvironmentFile=%h/fergusson/.env
+
+[Install]
+WantedBy=default.target
