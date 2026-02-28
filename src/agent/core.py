@@ -5,7 +5,8 @@ from pathlib import Path
 import logfire
 from httpx import AsyncClient, HTTPStatusError
 from jinja2 import Template
-from pydantic_ai import Agent, ModelRetry, RunContext, AgentRunResult
+from pydantic_ai import Agent, AgentRunResult, CodeExecutionTool, ModelRetry, RunContext, WebSearchTool
+from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
 from pydantic_ai.models.google import GoogleModel
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.google import GoogleProvider
@@ -131,6 +132,13 @@ class AgentManager:
             instructions=system_prompt,
             tool_timeout=settings.agent.tool_timeout,
             retries=settings.agent.retries,
+            # Built-in tools: https://ai.pydantic.dev/builtin-tools/ (availability per model)
+            # not possible to use with fucntion tools together
+            # builtin_tools=[
+            #     WebSearchTool(),
+            #     CodeExecutionTool(),
+            # ],
+            tools=[duckduckgo_search_tool()],
         )
 
         for tool in all_tools:
