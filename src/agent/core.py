@@ -5,7 +5,7 @@ from pathlib import Path
 import logfire
 from httpx import AsyncClient, HTTPStatusError
 from jinja2 import Template
-from pydantic_ai import Agent, AgentRunResult, CodeExecutionTool, ModelRetry, RunContext, WebSearchTool
+from pydantic_ai import Agent, AgentRunResult, ModelRetry, RunContext, UsageLimits
 from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
 from pydantic_ai.models.google import GoogleModel
 from pydantic_ai.models.openai import OpenAIChatModel
@@ -113,16 +113,17 @@ class AgentManager:
         with open(template_path, "r") as f:
             template = Template(f.read())
 
-        with open(settings.workspace_folder / "AGENTS.md", "r") as f:
-            agents_md_content = f.read()
+        with open(settings.workspace_folder / "PERSONALITY.md", "r") as f:
+            personality_md_content = f.read()
 
         with open(settings.workspace_folder / "MEMORY.md", "r") as f:
             memory_md_content = f.read()
 
         system_prompt = template.render(
             current_date=datetime.now().strftime("%B %d, %Y"),
-            agents_md_content=agents_md_content,
+            personality_md_content=personality_md_content,
             memory_md_content=memory_md_content,
+            tool_usage_limit=settings.agent.tool_call_limit,
         )
 
         # Define the Core Agent
@@ -225,7 +226,12 @@ class AgentManager:
                 expert_agent.tool_plain(tool)
 
             with logfire.span(f"Running expert agent '{expert_id}'", task=task) as _:
-                result = await expert_agent.run(task)
+                result = await expert_agent.run(
+                    task,
+                    usage_limits=UsageLimits(
+                        request_limit=settings.subagent.tool_call_limit,
+                    ),
+                )
 
             return result.output
 

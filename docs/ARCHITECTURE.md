@@ -15,7 +15,7 @@ To prevent the Core Agent from becoming bloated with too many instructions and t
 
 **How it works:**
 *   The Core Agent possesses a specialized tool: `delegate_to_expert(expert_id, task)`.
-*   When a complex task is identified (e.g., managing a Google Calendar), the Core Agent formulates a precise sub-task and invokes the relevant expert.
+*   When a complex task is identified (e.g., managing a Google Calendar), the Core Agent formulates a precise sub-task with expected output structure and invokes the relevant expert.
 *   The "expert" is dynamically instantiated as an independent `pydantic-ai` Agent within the same async process. This ensures low latency while maintaining strict context boundaries.
 *   The result of the expert's work is returned to the Core Agent, which synthesizes the final response for the user.
 

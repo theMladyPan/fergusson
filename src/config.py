@@ -88,17 +88,24 @@ class DiscordConfig(BaseSettings):
 class AgentConfig(BaseSettings):
     tool_timeout: int = Field(..., description="Default timeout for tools used by this agent")
     retries: int = Field(..., description="Number of retries for this agent")
+    tool_call_limit: int = Field(..., description="Number of tool calls a agent can invoke")
 
 
 class Settings(BaseSettings):
     discord: DiscordConfig = DiscordConfig()
     agent: AgentConfig = AgentConfig(
-        tool_timeout=30,
+        tool_timeout=20,
         retries=2,
+        tool_call_limit=4,
     )
     subagent: AgentConfig = AgentConfig(
-        tool_timeout=10,
+        tool_timeout=5,
         retries=3,
+        tool_call_limit=7,
+    )
+    max_conversation_history_len: int = Field(
+        15,
+        description="Maximum number of messages to keep in conversation history before compacting",
     )
     redis_host: str = "localhost"
     redis_port: int = 6379

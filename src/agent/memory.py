@@ -3,15 +3,26 @@ from typing import List
 from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, SystemPromptPart, TextPart, UserPromptPart
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from src.config import settings
 
 from src.db.models import Message, Summary
 
 
 async def add_message(
-    session: AsyncSession, chat_id: str, channel: str, role: str, content: str, metadata: dict = None
+    session: AsyncSession,
+    chat_id: str,
+    channel: str,
+    role: str,
+    content: str,
+    metadata: dict = None,
 ):
     message = Message(
-        chat_id=chat_id, channel=channel, role=role, content=content, metadata_json=metadata, is_valid=True
+        chat_id=chat_id,
+        channel=channel,
+        role=role,
+        content=content,
+        metadata_json=metadata,
+        is_valid=True,
     )
     session.add(message)
     await session.commit()
@@ -59,8 +70,8 @@ async def get_history(session: AsyncSession, chat_id: str, limit: int = 20) -> L
 
 async def check_and_compact(session: AsyncSession, chat_id: str, archiver_agent: "Archiver") -> None:
     """
-    Checks if message history exceeds 26 messages.
-    If so, compacts the oldest 13 messages into a summary and archives them.
+    Checks if message history exceeds the maximum length defined in settings.
+    If so, compacts the oldest half of the messages into a summary and archives them.
     """
     from sqlalchemy import func
 
@@ -69,13 +80,13 @@ async def check_and_compact(session: AsyncSession, chat_id: str, archiver_agent:
     count_result = await session.execute(stmt)
     count = count_result.scalar()
 
-    if count > 26:
-        # Fetch oldest 13 messages
+    if count > settings.max_conversation_history_len:
+        # Fetch oldest messages to compact (approx 2 thirds to allow some buffer)
         stmt = (
             select(Message)
             .where(Message.chat_id == chat_id, Message.is_valid == True)  # noqa: E712
             .order_by(Message.timestamp.asc())
-            .limit(13)
+            .limit(settings.max_conversation_history_len * 2 // 3)
         )
         result = await session.execute(stmt)
         messages_to_compact = result.scalars().all()

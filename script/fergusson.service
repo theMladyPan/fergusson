@@ -11,6 +11,7 @@ WorkingDirectory=%h/fergusson
 Restart=always
 RestartSec=10
 Environment=PYTHONUNBUFFERED=1
+
 # Make sure to load environment variables if not handled by uv
 EnvironmentFile=%h/fergusson/.env
 
