@@ -1,4 +1,5 @@
 import asyncio
+import os
 
 import logfire
 
@@ -9,6 +10,9 @@ from src.channels.discord import DiscordChannel
 from src.config import app_config, settings
 from src.db.session import init_db
 from src.runners import agent_loop, routine_loop
+
+# change current working directory to workspace to operate/read/write files within the workspace by default
+os.chdir(settings.workspace_folder)
 
 
 async def main():

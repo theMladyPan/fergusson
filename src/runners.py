@@ -80,7 +80,10 @@ async def agent_loop(bus: MessageBus, manager: AgentManager, archiver: Archiver)
                         )
 
                     except Exception as e:
-                        logfire.error(f"Agent execution error: {e}")
+                        logfire.error(
+                            f"Agent execution error: {e}",
+                            _exc_info=True,
+                        )
                         error_reply = OutboundMessage(
                             chat_id=msg.chat_id,
                             content=f"Sorry, I encountered an error: {str(e)}",
@@ -91,7 +94,7 @@ async def agent_loop(bus: MessageBus, manager: AgentManager, archiver: Archiver)
 
         except asyncio.CancelledError:
             break
-        
+
         except Exception as e:
             logfire.error(f"Agent loop error: {e}", _exc_info=True)
             await asyncio.sleep(1)
@@ -102,7 +105,7 @@ async def routine_loop(bus: MessageBus, interval: int = 3600):
     Periodically reads workspace/ROUTINE.md and injects it as a system message.
     """
     logfire.info(f"Routine loop started with interval {interval}s")
-    
+
     # Wait a bit for the system to fully initialize
     await asyncio.sleep(10)
 
@@ -113,11 +116,11 @@ async def routine_loop(bus: MessageBus, interval: int = 3600):
                 logfire.warning("ROUTINE.md not found, skipping routine check.")
             else:
                 content = routine_path.read_text()
-                
+
                 # The agent will parse this.
                 # We must be clear this is a system instruction to check routines.
-                
-                current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+                current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 prompt = f"SYSTEM ALERT: It is now {current_time}.\n\nReview the following ROUTINE.md and execute any tasks that are due now:\n\n{content}"
 
                 msg = InboundMessage(
@@ -127,13 +130,13 @@ async def routine_loop(bus: MessageBus, interval: int = 3600):
                     content=prompt,
                     channel="cron",
                 )
-                
+
                 logfire.info("Triggering routine execution.")
                 await bus.publish_inbound(msg)
-            
+
             # Wait for next interval
             await asyncio.sleep(interval)
-            
+
         except asyncio.CancelledError:
             break
         except Exception as e:
