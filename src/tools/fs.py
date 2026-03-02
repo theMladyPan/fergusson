@@ -66,8 +66,31 @@ async def read_file_content(file_path: str, elevated_privileges: bool = False) -
     return path.read_text(encoding="utf-8")
 
 
+async def read_file_content_with_line_numbers(file_path: str, elevated_privileges: bool = False) -> str:
+    """Reads the content of a file and prefixes each line with its line number. Use this tool when you want to reference specific lines in a file for the agent to understand the context, e.g. before updating the file.
+
+    Args:
+        file_path (str): The path to the file to read.
+        elevated_privileges (bool): Whether to bypass path restrictions, default is False.
+
+    Returns:
+        str: The content of the file with line numbers. (1-based indexing)
+    """
+
+    path = _check_path(file_path, elevated_privileges)
+    if not path.is_file():
+        raise ModelRetry(f"{file_path} is not a file or does not exist.")
+
+    content = path.read_text(encoding="utf-8")
+    lines = content.splitlines()
+    numbered_lines = [f"{idx + 1}: {line}" for idx, line in enumerate(lines)]
+    return "\n".join(numbered_lines)
+
+
 async def write_file_content(file_path: str, content: str, elevated_privileges: bool = False) -> str:
-    """Writes content to a file. Overwrites if exists.
+    """Writes content to a file. Overwrites if exists. Create new file and path if it does not.
+
+    Prefer this tool for file creation and updates instead of bash commands.
 
     Args:
         file_path (str): The path to the file to write.
@@ -144,6 +167,8 @@ async def replace_file_segment(
     file_path: str, content: str, start_line: int, end_line: int, elevated_privileges: bool = False
 ) -> str:
     """Replaces a specific range of lines in a file with new content.
+
+    Before you use this tool, make sure to read the specified lines using read_file_segment to understand the context and structure of the file. This will help you avoid unintentional formatting issues and ensure that the new content integrates smoothly with the existing content.
 
     Args:
         file_path (str): The path to the file.

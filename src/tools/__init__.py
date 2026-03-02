@@ -4,6 +4,7 @@ from src.tools.bash import run_bash_command
 from src.tools.fs import (
     list_files,
     read_file_content,
+    read_file_content_with_line_numbers,
     write_file_content,
     read_file_segment,
     replace_file_segment,
@@ -15,6 +16,7 @@ all_tools = [
     run_bash_command,
     list_files,
     read_file_content,
+    read_file_content_with_line_numbers,
     write_file_content,
     read_file_segment,
     replace_file_segment,
