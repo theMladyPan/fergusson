@@ -61,7 +61,7 @@ async def agent_loop(bus: MessageBus, manager: AgentManager, archiver: Archiver)
                         if is_voice_request:
                             from src.agent.voice import get_dubbing_agent
 
-                            dubbing_agent = get_dubbing_agent(manager.core_agent.model)
+                            dubbing_agent = get_dubbing_agent(manager.fast_model)
                             with logfire.span("Rewriting response for voice dubbing"):
                                 dub_result = await dubbing_agent.run(f"Rewrite this for voice:\n\n{result.output}")
                                 spoken_text = dub_result.output
