@@ -59,7 +59,14 @@ async def agent_loop(bus: MessageBus, manager: AgentManager, archiver: Archiver)
                         # (tzv. Hlas-za-Hlas) kvoli šetreniu limitov STT API.
                         outbound_media = []
                         if is_voice_request:
-                            generated_audio = await text_to_speech(result.output)
+                            from src.agent.voice import get_dubbing_agent
+
+                            dubbing_agent = get_dubbing_agent(manager.core_agent.model)
+                            with logfire.span("Rewriting response for voice dubbing"):
+                                dub_result = await dubbing_agent.run(f"Rewrite this for voice:\n\n{result.output}")
+                                spoken_text = dub_result.output
+
+                            generated_audio = await text_to_speech(spoken_text)
                             if generated_audio:
                                 outbound_media.append(generated_audio)
                         # --------------------------------------------
