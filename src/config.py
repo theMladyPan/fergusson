@@ -76,6 +76,7 @@ def load_config(path: str | Path) -> AppConfig:
 # Environment settings (secrets, etc.)
 class DiscordConfig(BaseSettings):
     token: str | None = None
+    default_channel_id: str | None = None
     gateway_url: str = "wss://gateway.discord.gg/?v=10&encoding=json"
     intents: int = 33280  # Default intents for receiving messages
     model_config = SettingsConfigDict(

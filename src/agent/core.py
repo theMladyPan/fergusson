@@ -1,4 +1,5 @@
 import os
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -45,6 +46,12 @@ def create_retrying_client() -> AsyncClient:
         validate_response=should_retry_status,
     )
     return AsyncClient(transport=transport, timeout=15)
+
+
+@dataclass
+class AgentDeps:
+    chat_id: str
+    channel: str
 
 
 class AgentManager:
@@ -130,17 +137,16 @@ class AgentManager:
         self.core_agent = Agent(
             model=self.model,
             name="CoreAgent",
+            deps_type=AgentDeps,
             instructions=system_prompt,
             tool_timeout=settings.agent.tool_timeout,
             retries=settings.agent.retries,
-            # Built-in tools: https://ai.pydantic.dev/builtin-tools/ (availability per model)
-            # not possible to use with fucntion tools together
-            # builtin_tools=[
-            #     WebSearchTool(),
-            #     CodeExecutionTool(),
-            # ],
             tools=[duckduckgo_search_tool()],
         )
+
+        @self.core_agent.system_prompt
+        def dynamic_context_prompt(ctx: RunContext[AgentDeps]) -> str:
+            return f"\n\nCURRENT CONTEXT:\nYou are currently operating in channel: '{ctx.deps.channel}' and chat_id: '{ctx.deps.chat_id}'."
 
         for tool in all_tools:
             self.core_agent.tool_plain(tool)
@@ -238,11 +244,16 @@ class AgentManager:
         delegate_to_expert.__doc__ = f"{self.registry.get_skill_list_prompt()}"
         self.core_agent.tool(delegate_to_expert)
 
-    async def run(self, user_input: str, history: list | None = None) -> AgentRunResult:
+    async def run(
+        self, user_input: str, history: list | None = None, chat_id: str = "cli", channel: str = "cli"
+    ) -> AgentRunResult:
         """Runs the core agent loop."""
+
+        deps = AgentDeps(chat_id=chat_id, channel=channel)
 
         result = await self.core_agent.run(
             user_input,
+            deps=deps,
             message_history=history,
         )
 

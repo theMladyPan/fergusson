@@ -32,7 +32,9 @@ async def agent_loop(bus: MessageBus, manager: AgentManager, archiver: Archiver)
                     # 3. Run Agent
                     try:
                         # We pass the history to the agent
-                        result = await manager.run(msg.content, history=history)
+                        result = await manager.run(
+                            msg.content, history=history, chat_id=msg.chat_id, channel=msg.channel
+                        )
 
                         # 4. Add assistant response to DB
                         await add_message(session, msg.chat_id, msg.channel, "assistant", result.output)
@@ -129,12 +131,15 @@ async def routine_loop(bus: MessageBus, interval: int = 3600):
                 current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 prompt = f"SYSTEM ALERT: It is now {current_time}.\n\nReview the following ROUTINE.md (with line numbers) and execute any tasks that are due now:\n\n{content}"
 
+                chat_id = settings.discord.default_channel_id if settings.discord.default_channel_id else "cron_chat"
+                channel = "discord" if settings.discord.default_channel_id else "cron"
+
                 msg = InboundMessage(
                     sender_id="system_cron",
                     username="System Cron",
-                    chat_id="cron_chat",
+                    chat_id=chat_id,
                     content=prompt,
-                    channel="cron",
+                    channel=channel,
                 )
 
                 logfire.info("Triggering routine execution.")
