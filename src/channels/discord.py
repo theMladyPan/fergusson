@@ -101,7 +101,11 @@ class DiscordChannel(BaseChannel):
 
         try:
             chunks = _split_message(msg.content or "")
-            if not chunks:
+            # Ak neexistuje text ale máme media, sprav aspoň jeden prázdny chunk
+            if not chunks and msg.media:
+                chunks = [""]
+
+            if not chunks and not msg.media:
                 return
 
             for i, chunk in enumerate(chunks):
@@ -112,19 +116,36 @@ class DiscordChannel(BaseChannel):
                     payload["message_reference"] = {"message_id": msg.reply_to}
                     payload["allowed_mentions"] = {"replied_user": False}
 
-                if not await self._send_payload(url, headers, payload):
+                # Pripevníme médiá iba k poslednému chunku
+                files_to_send = None
+                if i == len(chunks) - 1 and msg.media:
+                    files_to_send = []
+                    for idx, media_path in enumerate(msg.media):
+                        p = Path(media_path)
+                        if p.exists():
+                            files_to_send.append((f"file[{idx}]", (p.name, p.read_bytes(), "application/octet-stream")))
+
+                if not await self._send_payload(url, headers, payload, files_to_send):
                     break  # Abort remaining chunks on failure
         finally:
             await self._stop_typing(msg.chat_id)
 
-    async def _send_payload(self, url: str, headers: dict[str, str], payload: dict[str, Any]) -> bool:
+    async def _send_payload(
+        self, url: str, headers: dict[str, str], payload: dict[str, Any], files: list | None = None
+    ) -> bool:
         """Send a single Discord API payload with retry on rate-limit. Returns True on success."""
         if not self._http:
             return False
 
         for attempt in range(3):
             try:
-                response = await self._http.post(url, headers=headers, json=payload)
+                if files:
+                    response = await self._http.post(
+                        url, headers=headers, data={"payload_json": json.dumps(payload)}, files=files
+                    )
+                else:
+                    response = await self._http.post(url, headers=headers, json=payload)
+
                 if response.status_code == 429:
                     data = response.json()
                     retry_after = float(data.get("retry_after", 1.0))

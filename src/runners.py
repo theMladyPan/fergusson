@@ -1,6 +1,7 @@
 import asyncio
 from dataclasses import asdict
 from datetime import datetime
+from pathlib import Path
 
 import logfire
 
@@ -11,6 +12,7 @@ from src.broker.bus import MessageBus
 from src.broker.schemas import InboundMessage, MessageMetadata, OutboundMessage, TokenUsage
 from src.config import settings
 from src.db.session import async_session
+from src.services.elevenlabs import speech_to_text, text_to_speech
 from src.tools.fs import read_file_content_with_line_numbers
 
 
@@ -26,6 +28,19 @@ async def agent_loop(bus: MessageBus, manager: AgentManager, archiver: Archiver)
                     # 1. Retrieve history
                     history = await get_history(session, msg.chat_id)
 
+                    # --- PRIDANÁ LOGIKA: STT (Speech-to-Text) ---
+                    # Skontroluj či v stiahnutých médiách z Discordu bola prípona odkazujúca na audio.
+                    is_voice_request = False
+                    audio_extensions = {".mp3", ".ogg", ".wav", ".m4a"}
+                    for media_path in msg.media:
+                        if Path(media_path).suffix.lower() in audio_extensions:
+                            stt_text = await speech_to_text(media_path)
+                            if stt_text:
+                                msg.content += f"\n\n[Hlasová transkripcia z audia: '{stt_text}']"
+                                is_voice_request = True
+                            break  # Prepisujeme iba prvú hlasovku z poľa pre zjednodušenie
+                    # --------------------------------------------
+
                     # 2. Add current user message to DB
                     await add_message(session, msg.chat_id, msg.channel, "user", msg.content)
 
@@ -38,6 +53,16 @@ async def agent_loop(bus: MessageBus, manager: AgentManager, archiver: Archiver)
 
                         # 4. Add assistant response to DB
                         await add_message(session, msg.chat_id, msg.channel, "assistant", result.output)
+
+                        # --- PRIDANÁ LOGIKA: TTS (Text-to-Speech) ---
+                        # Generujeme hlas iba vtedy, ak sme prijali otázku akoukoľvek hlasovkou
+                        # (tzv. Hlas-za-Hlas) kvoli šetreniu limitov STT API.
+                        outbound_media = []
+                        if is_voice_request:
+                            generated_audio = await text_to_speech(result.output)
+                            if generated_audio:
+                                outbound_media.append(generated_audio)
+                        # --------------------------------------------
 
                         # 5. Publish outbound message
                         usage = result.usage()
@@ -54,12 +79,15 @@ async def agent_loop(bus: MessageBus, manager: AgentManager, archiver: Archiver)
                                 if not hasattr(metadata, k):
                                     setattr(metadata, k, v)
 
+                        setattr(metadata, "is_voice_request", is_voice_request)
+
                         reply = OutboundMessage(
                             chat_id=msg.chat_id,
                             content=result.output,
                             channel=msg.channel,
                             reply_to=msg.metadata.get("message_id") if msg.metadata else None,
                             metadata=metadata,
+                            media=outbound_media,
                         )
                         await bus.publish_outbound(reply)
 

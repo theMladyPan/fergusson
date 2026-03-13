@@ -86,6 +86,18 @@ class DiscordConfig(BaseSettings):
     )
 
 
+class ElevenLabsConfig(BaseSettings):
+    api_key: str | None = None
+    voice_id: str = "pNInz6obpgDQGcFmaJgB"  # Adam
+    model_id_tts: str = "eleven_multilingual_v2"
+    model_id_stt: str = "scribe_v1"
+    model_config = SettingsConfigDict(
+        env_prefix="ELEVENLABS_",
+        env_file=".env",
+        extra="ignore",
+    )
+
+
 class AgentConfig(BaseSettings):
     tool_timeout: int = Field(..., description="Default timeout for tools used by this agent")
     retries: int = Field(..., description="Number of retries for this agent")
@@ -94,6 +106,7 @@ class AgentConfig(BaseSettings):
 
 class Settings(BaseSettings):
     discord: DiscordConfig = DiscordConfig()
+    elevenlabs: ElevenLabsConfig = ElevenLabsConfig()
     agent: AgentConfig = AgentConfig(
         tool_timeout=20,
         retries=2,
