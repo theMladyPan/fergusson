@@ -45,9 +45,10 @@ class SkillRegistry:
     def discover(self):
         """Scans the skills directory for valid skill packages."""
 
-        self.skills = {}
+        discovered_skills: dict[str, Skill] = {}
 
         if not self.skills_dir.exists():
+            self.skills = discovered_skills
             return
 
         for skill_path in self.skills_dir.iterdir():
@@ -82,13 +83,15 @@ class SkillRegistry:
                         pass
 
                 skill_id = skill_path.name
-                self.skills[skill_id] = Skill(
+                discovered_skills[skill_id] = Skill(
                     id=skill_id,
                     instructions=instructions,
                     metadata=SkillMetadata(**metadata_dict),
                     path=skill_path,
                 )
                 logfire.info(f"Discovered skill: {skill_id} - {metadata_dict['description']}")
+
+        self.skills = discovered_skills
 
     def get_skill_list_prompt(self) -> str:
         """Return a markdown table describing the available skills."""
