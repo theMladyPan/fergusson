@@ -67,9 +67,10 @@ class SkillRegistry:
 
                 # 1. Try to apply from frontmatter (Claude Code standard)
                 if frontmatter_meta:
+                    version = frontmatter_meta.get("version") or metadata_dict.get("version", "0.1.0")
                     metadata_dict["name"] = frontmatter_meta.get("name", metadata_dict["name"])
                     metadata_dict["description"] = frontmatter_meta.get("description", metadata_dict["description"])
-                    metadata_dict["version"] = frontmatter_meta.get("version", metadata_dict.get("version", "0.1.0"))
+                    metadata_dict["version"] = version
                     tools = frontmatter_meta.get("tools", [])
                     metadata_dict["tools"] = tools if isinstance(tools, list) else []
 
