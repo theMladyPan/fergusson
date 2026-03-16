@@ -50,8 +50,6 @@ class SkillRegistry:
         if not self.skills_dir.exists():
             return
 
-        self.skills = {}
-
         for skill_path in self.skills_dir.iterdir():
             if not skill_path.is_dir():
                 continue
@@ -67,9 +65,10 @@ class SkillRegistry:
 
                 # 1. Try to apply from frontmatter (Claude Code standard)
                 if frontmatter_meta:
+                    version = frontmatter_meta.get("version") or metadata_dict.get("version", "0.1.0")
                     metadata_dict["name"] = frontmatter_meta.get("name", metadata_dict["name"])
                     metadata_dict["description"] = frontmatter_meta.get("description", metadata_dict["description"])
-                    metadata_dict["version"] = frontmatter_meta.get("version", metadata_dict.get("version", "0.1.0"))
+                    metadata_dict["version"] = version
                     metadata_dict["tools"] = frontmatter_meta.get("tools", [])
 
                 # 2. Fallback to openai.yaml if frontmatter didn't provide specific fields

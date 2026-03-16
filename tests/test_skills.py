@@ -81,4 +81,8 @@ tools:
     def beta():
         return "beta"
 
-    assert registry.get_tools_for_skill("readonly-reviewer", [alpha, beta]) == [beta, alpha]
+    selected_tools = registry.get_tools_for_skill("readonly-reviewer", [alpha, beta])
+
+    assert selected_tools == [beta, alpha]
+    assert selected_tools.count(beta) == 1
+    assert len(selected_tools) == 2
