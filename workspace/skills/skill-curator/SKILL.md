@@ -20,6 +20,7 @@ The core of a skill is the `SKILL.md` file.
     ---
     name: <skill-name> (e.g., kubernetes-manager)
     description: <short-description> (This is what the Core Agent sees to decide if it should call this skill)
+    tools: [<optional-tool-name>, <optional-tool-name>] # Omit to inherit all built-in tools
     ---
     ```
 2.  **System Prompt (Markdown Body)**:
@@ -52,6 +53,9 @@ When the user asks for a new skill:
 ---
 name: python-coder
 description: A specialized Python developer for writing, debugging, and testing scripts.
+tools:
+  - read_file_content
+  - write_file_content
 ---
 
 # Python Developer Instructions

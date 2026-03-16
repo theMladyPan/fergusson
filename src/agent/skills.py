@@ -1,8 +1,9 @@
 from pathlib import Path
+from typing import Callable
 
 import logfire
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from src.config import settings
 
@@ -11,6 +12,7 @@ class SkillMetadata(BaseModel):
     name: str
     description: str
     version: str = "0.1.0"
+    tools: list[str] = Field(default_factory=list)
 
 
 class Skill(BaseModel):
@@ -48,6 +50,8 @@ class SkillRegistry:
         if not self.skills_dir.exists():
             return
 
+        self.skills = {}
+
         for skill_path in self.skills_dir.iterdir():
             if not skill_path.is_dir():
                 continue
@@ -65,6 +69,8 @@ class SkillRegistry:
                 if frontmatter_meta:
                     metadata_dict["name"] = frontmatter_meta.get("name", metadata_dict["name"])
                     metadata_dict["description"] = frontmatter_meta.get("description", metadata_dict["description"])
+                    metadata_dict["version"] = frontmatter_meta.get("version", metadata_dict.get("version", "0.1.0"))
+                    metadata_dict["tools"] = frontmatter_meta.get("tools", [])
 
                 # 2. Fallback to openai.yaml if frontmatter didn't provide specific fields
                 meta_yaml = skill_path / "agents" / "openai.yaml"
@@ -87,6 +93,39 @@ class SkillRegistry:
                     path=skill_path,
                 )
                 logfire.info(f"Discovered skill: {skill_id} - {metadata_dict['description']}")
+
+    def get_tools_for_skill(self, skill_id: str, available_tools: list[Callable]) -> list[Callable]:
+        """Return the subset of tools a skill is allowed to use."""
+
+        skill = self.skills[skill_id]
+        requested_tools = skill.metadata.tools
+        if not requested_tools:
+            return available_tools
+
+        tools_by_name = {tool.__name__: tool for tool in available_tools}
+        selected_tools = []
+        seen_tools = set()
+        unknown_tools = []
+
+        for tool_name in requested_tools:
+            tool = tools_by_name.get(tool_name)
+            if tool is None:
+                unknown_tools.append(tool_name)
+                continue
+            if tool_name in seen_tools:
+                continue
+
+            seen_tools.add(tool_name)
+            selected_tools.append(tool)
+
+        if unknown_tools:
+            logfire.warning(
+                "Skill requested unknown tools; ignoring them.",
+                skill_id=skill_id,
+                unknown_tools=unknown_tools,
+            )
+
+        return selected_tools
 
     def get_skill_list_prompt(self) -> str:
         """Return a markdown table describing available sub-agents for the core agent's context."""

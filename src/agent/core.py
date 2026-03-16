@@ -226,9 +226,7 @@ class AgentManager:
                 retries=settings.subagent.retries,
             )
 
-            # Sub-agents get the same toolset for now,
-            # NOTE: think through later if we want to limit tools for sub-agents
-            for tool in all_tools:
+            for tool in self.registry.get_tools_for_skill(expert_id, all_tools):
                 expert_agent.tool_plain(tool)
 
             with logfire.span(f"Running expert agent '{expert_id}'", task=task) as _:

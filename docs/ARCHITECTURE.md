@@ -24,7 +24,7 @@ Sub-agents are defined dynamically using the **Claude Code Skills Standard**. Th
 
 **Structure of a Skill:**
 *   **`SKILL.md`:** The primary definition file.
-    *   **YAML Frontmatter:** Located between `---` at the top of the file. It must contain at least `name` and `description`. This description is what the Core Agent reads to understand what the expert is capable of.
+    *   **YAML Frontmatter:** Located between `---` at the top of the file. It must contain at least `name` and `description`. It can also include an optional `tools` list to restrict the built-in tools exposed to that sub-agent. The description is what the Core Agent reads to understand what the expert is capable of.
     *   **Markdown Body:** The system instructions for the sub-agent. This defines its persona, rules, and how it should approach tasks.
 
 **Why this standard?**
