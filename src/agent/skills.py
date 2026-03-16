@@ -2,7 +2,7 @@ from pathlib import Path
 
 import logfire
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from src.config import settings
 
@@ -11,6 +11,7 @@ class SkillMetadata(BaseModel):
     name: str
     description: str
     version: str = "0.1.0"
+    tools: list[str] = Field(default_factory=list)
 
 
 class Skill(BaseModel):
@@ -68,6 +69,9 @@ class SkillRegistry:
                 if frontmatter_meta:
                     metadata_dict["name"] = frontmatter_meta.get("name", metadata_dict["name"])
                     metadata_dict["description"] = frontmatter_meta.get("description", metadata_dict["description"])
+                    metadata_dict["version"] = frontmatter_meta.get("version", metadata_dict.get("version", "0.1.0"))
+                    tools = frontmatter_meta.get("tools", [])
+                    metadata_dict["tools"] = tools if isinstance(tools, list) else []
 
                 # 2. Fallback to openai.yaml if frontmatter didn't provide specific fields
                 meta_yaml = skill_path / "agents" / "openai.yaml"
@@ -121,6 +125,7 @@ class SkillRegistry:
             "# Available Skills",
             "You can use any of the following skills directly when they match the user's request.",
             "Do not treat skills as separate agents; they are reusable instructions available to you.",
+            "If a skill declares a `tools` list, only use those built-in tools while applying that skill.",
             "",
             self.get_skill_list_prompt(),
         ]
@@ -130,6 +135,11 @@ class SkillRegistry:
                 [
                     "",
                     f"## Skill: {skill.metadata.name} (`{skill.id}`)",
+                    (
+                        f"Allowed tools for this skill: {', '.join(skill.metadata.tools)}"
+                        if skill.metadata.tools
+                        else "Allowed tools for this skill: all built-in tools"
+                    ),
                     skill.instructions.strip(),
                 ]
             )

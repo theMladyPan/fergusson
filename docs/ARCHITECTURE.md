@@ -23,7 +23,7 @@ Skills are defined dynamically using the **Claude Code Skills Standard**. They a
 
 **Structure of a Skill:**
 *   **`SKILL.md`:** The primary definition file.
-    *   **YAML Frontmatter:** Located between `---` at the top of the file. It must contain at least `name` and `description`. This description is what the agent reads to understand what the skill is capable of.
+    *   **YAML Frontmatter:** Located between `---` at the top of the file. It must contain at least `name` and `description`. It can also include an optional `tools` list to tell the Core Agent which built-in tools it should stay within while applying that skill. The description is what the agent reads to understand what the skill is capable of.
     *   **Markdown Body:** The instructions for applying the skill. This defines the workflow, rules, and how the agent should approach matching tasks.
 
 **Why this standard?**
