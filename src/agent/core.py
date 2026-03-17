@@ -6,7 +6,7 @@ from pathlib import Path
 import logfire
 from httpx import AsyncClient, HTTPStatusError
 from jinja2 import Template
-from pydantic_ai import Agent, AgentRunResult, ModelRetry, RunContext, UsageLimits
+from pydantic_ai import Agent, AgentRunResult, RunContext
 from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
 from pydantic_ai.models.google import GoogleModel
 from pydantic_ai.models.openai import OpenAIChatModel
@@ -55,6 +55,29 @@ class AgentDeps:
 
 
 class AgentManager:
+    def _build_system_prompt(self) -> str:
+        template_path = Path(__file__).parents[1] / "prompt" / "core.j2"
+        with open(template_path, "r") as f:
+            template = Template(f.read())
+
+        with open(settings.workspace_folder / "PERSONALITY.md", "r") as f:
+            personality_md_content = f.read()
+
+        with open(settings.workspace_folder / "MEMORY.md", "r") as f:
+            memory_md_content = f.read()
+
+        system_prompt = template.render(
+            current_date=datetime.now().strftime("%B %d, %Y"),
+            personality_md_content=personality_md_content,
+            memory_md_content=memory_md_content,
+            tool_usage_limit=settings.agent.tool_call_limit,
+        )
+        skills_prompt = self.registry.get_skill_catalog_prompt()
+        if skills_prompt:
+            system_prompt = f"{system_prompt.rstrip()}\n\n{skills_prompt}"
+
+        return system_prompt
+
     def _build_model(self, model_config):
         provider_name = model_config.provider
         provider_info = app_config.providers.get(provider_name)
@@ -116,22 +139,7 @@ class AgentManager:
         self.registry = SkillRegistry()
         self.registry.discover()
 
-        template_path = Path(__file__).parents[1] / "prompt" / "core.j2"
-        with open(template_path, "r") as f:
-            template = Template(f.read())
-
-        with open(settings.workspace_folder / "PERSONALITY.md", "r") as f:
-            personality_md_content = f.read()
-
-        with open(settings.workspace_folder / "MEMORY.md", "r") as f:
-            memory_md_content = f.read()
-
-        system_prompt = template.render(
-            current_date=datetime.now().strftime("%B %d, %Y"),
-            personality_md_content=personality_md_content,
-            memory_md_content=memory_md_content,
-            tool_usage_limit=settings.agent.tool_call_limit,
-        )
+        system_prompt = self._build_system_prompt()
 
         # Define the Core Agent
         self.core_agent = Agent(
@@ -150,6 +158,20 @@ class AgentManager:
 
         for tool in all_tools:
             self.core_agent.tool_plain(tool)
+
+        @self.core_agent.tool_plain
+        async def load_skill_details(skill_id: str) -> str:
+            """
+            Loads the full instructions for a specific skill and any prerequisite skills it declares.
+            Use this when a skill from the catalog is relevant and you need its full workflow guidance.
+            """
+
+            bundle = self.registry.load_skill_bundle(skill_id)
+            return (
+                "Authoritative skill guidance loaded below. Follow these instructions for the current task, "
+                "including any declared tool restrictions and prerequisite skills.\n\n"
+                f"{bundle}"
+            )
 
         @self.core_agent.tool_plain
         async def send_message_to_channel(channel: str, message: str, chat_id: str) -> str:
@@ -196,53 +218,6 @@ class AgentManager:
                 if not recent_chats:
                     return "No recent chats found."
                 return "\n".join(recent_chats)
-
-        async def delegate_to_expert(ctx: RunContext[None], expert_id: str, task: str) -> str:
-            """
-            Delegates a specific task to a specialized sub-agent. Use this tool if the request topic is covered by one of the experts mentioned below.
-
-            You can and should use this tool without asking for permission.
-
-            Args:
-                expert_id: The ID of the expert.
-                task: A detailed description of what the expert should do. Always provide expected output format and any relevant context.
-
-            Returns:
-                The result from the expert agent after completing the task.
-            """
-            skill = self.registry.skills.get(expert_id)
-            if not skill:
-                raise ModelRetry(
-                    f"Expert '{expert_id}' not found. Please check the list of available experts and their "
-                    "capabilities in the tool's documentation."
-                )
-
-            # Create a dynamic sub-agent for this skill using the fast model
-            expert_agent = Agent(
-                model=self.fast_model,
-                name=f"ExpertAgent-{expert_id}",
-                system_prompt=skill.instructions,
-                tool_timeout=settings.subagent.tool_timeout,
-                retries=settings.subagent.retries,
-            )
-
-            # Sub-agents get the same toolset for now,
-            # NOTE: think through later if we want to limit tools for sub-agents
-            for tool in all_tools:
-                expert_agent.tool_plain(tool)
-
-            with logfire.span(f"Running expert agent '{expert_id}'", task=task) as _:
-                result = await expert_agent.run(
-                    task,
-                    usage_limits=UsageLimits(
-                        request_limit=settings.subagent.tool_call_limit,
-                    ),
-                )
-
-            return result.output
-
-        delegate_to_expert.__doc__ = f"{self.registry.get_skill_list_prompt()}"
-        self.core_agent.tool(delegate_to_expert)
 
     async def run(
         self, user_input: str, history: list | None = None, chat_id: str = "cli", channel: str = "cli"

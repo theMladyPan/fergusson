@@ -1,6 +1,6 @@
 # Fergusson Agent Architecture & Skills Strategy
 
-This document outlines the architectural decisions and logic behind the agent system in the Fergusson project. It serves as a guide for how the core agent operates, how sub-agents (skills) are structured, and how cross-channel communication is handled.
+This document outlines the architectural decisions and logic behind the agent system in the Fergusson project. It serves as a guide for how the core agent operates, how shared skills are structured, and how cross-channel communication is handled.
 
 ## 1. The Core Agent (The "Omnipotent" Router)
 The Core Agent (`src/agent/core.py`) is the primary interface for all incoming user requests. It acts as an intelligent router and orchestrator.
@@ -10,22 +10,21 @@ The Core Agent (`src/agent/core.py`) is the primary interface for all incoming u
 *   **Guardrails:** Given its access to bash execution (`src/tools/bash.py`), it is configured to intercept hazardous commands (like `rm`, `sudo`) and explicitly request user permission before execution.
 *   **Memory Integration:** It maintains a persistent context of the conversation using SQLite (`state.db`). It retrieves history based on the active `chat_id` (e.g., a specific Discord thread or the CLI session).
 
-## 2. Agent-to-Agent (A2A) Delegation
-To prevent the Core Agent from becoming bloated with too many instructions and tools, Fergusson uses an Agent-to-Agent (A2A) delegation model based on the [Pydantic-AI specification](https://ai.pydantic.dev/a2a/).
+## 2. Shared Skills
+To keep behavior consistent with Codex-style skills, Fergusson loads skills into the agent prompt instead of creating one sub-agent per skill.
 
 **How it works:**
-*   The Core Agent possesses a specialized tool: `delegate_to_expert(expert_id, task)`.
-*   When a complex task is identified (e.g., managing a Google Calendar), the Core Agent formulates a precise sub-task with expected output structure and invokes the relevant expert.
-*   The "expert" is dynamically instantiated as an independent `pydantic-ai` Agent within the same async process. This ensures low latency while maintaining strict context boundaries.
-*   The result of the expert's work is returned to the Core Agent, which synthesizes the final response for the user.
+*   The Core Agent discovers every skill in `workspace/skills/` at startup.
+*   Skill metadata is used for an overview table, and the skill instructions are appended to the agent's prompt.
+*   When a complex task is identified (e.g., managing a Google Calendar), the agent applies the relevant skill instructions directly while still using the shared toolset.
 
-## 3. The Skills Standard (Sub-Agents)
-Sub-agents are defined dynamically using the **Claude Code Skills Standard**. They are stored in `workspace/skills/`.
+## 3. The Skills Standard
+Skills are defined dynamically using the **Claude Code Skills Standard**. They are stored in `workspace/skills/`.
 
 **Structure of a Skill:**
 *   **`SKILL.md`:** The primary definition file.
-    *   **YAML Frontmatter:** Located between `---` at the top of the file. It must contain at least `name` and `description`. This description is what the Core Agent reads to understand what the expert is capable of.
-    *   **Markdown Body:** The system instructions for the sub-agent. This defines its persona, rules, and how it should approach tasks.
+    *   **YAML Frontmatter:** Located between `---` at the top of the file. It must contain at least `name` and `description`. It can also include an optional `tools` list to tell the Core Agent which built-in tools it should stay within while applying that skill. The description is what the agent reads to understand what the skill is capable of.
+    *   **Markdown Body:** The instructions for applying the skill. This defines the workflow, rules, and how the agent should approach matching tasks.
 
 **Why this standard?**
 Using a file-based standard allows us to hot-swap, update, or add new capabilities to the system without modifying the core python code. The `SkillRegistry` (`src/agent/skills.py`) parses these directories at startup and injects their metadata into the Core Agent's system prompt.
