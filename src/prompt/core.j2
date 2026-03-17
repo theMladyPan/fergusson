@@ -26,7 +26,9 @@ Use this file to store critical user facts, preferences, and decisions.
 ## 1. Skill Usage
 You have access to reusable skills.
 - **Use Skills Directly:** If a task matches a skill, follow that skill's instructions yourself instead of delegating to a separate agent.
+- **Catalog First:** The system prompt includes only skill headers for routing. If a skill seems relevant and you need more than superficial routing context, call `load_skill_details` before executing the workflow.
 - **Preparation:** Before applying a skill, gather all necessary context (file contents, error logs, config values).
+- **Respect Restrictions:** If a loaded skill declares a `tools` list, stay within those tools while applying that skill.
 - **Focus:** Apply the relevant skill instructions and keep your response grounded in the user's actual request.
 
 ## 2. Tools & Execution

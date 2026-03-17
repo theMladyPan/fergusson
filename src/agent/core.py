@@ -55,6 +55,29 @@ class AgentDeps:
 
 
 class AgentManager:
+    def _build_system_prompt(self) -> str:
+        template_path = Path(__file__).parents[1] / "prompt" / "core.j2"
+        with open(template_path, "r") as f:
+            template = Template(f.read())
+
+        with open(settings.workspace_folder / "PERSONALITY.md", "r") as f:
+            personality_md_content = f.read()
+
+        with open(settings.workspace_folder / "MEMORY.md", "r") as f:
+            memory_md_content = f.read()
+
+        system_prompt = template.render(
+            current_date=datetime.now().strftime("%B %d, %Y"),
+            personality_md_content=personality_md_content,
+            memory_md_content=memory_md_content,
+            tool_usage_limit=settings.agent.tool_call_limit,
+        )
+        skills_prompt = self.registry.get_skill_catalog_prompt()
+        if skills_prompt:
+            system_prompt = f"{system_prompt.rstrip()}\n\n{skills_prompt}"
+
+        return system_prompt
+
     def _build_model(self, model_config):
         provider_name = model_config.provider
         provider_info = app_config.providers.get(provider_name)
@@ -116,25 +139,7 @@ class AgentManager:
         self.registry = SkillRegistry()
         self.registry.discover()
 
-        template_path = Path(__file__).parents[1] / "prompt" / "core.j2"
-        with open(template_path, "r") as f:
-            template = Template(f.read())
-
-        with open(settings.workspace_folder / "PERSONALITY.md", "r") as f:
-            personality_md_content = f.read()
-
-        with open(settings.workspace_folder / "MEMORY.md", "r") as f:
-            memory_md_content = f.read()
-
-        system_prompt = template.render(
-            current_date=datetime.now().strftime("%B %d, %Y"),
-            personality_md_content=personality_md_content,
-            memory_md_content=memory_md_content,
-            tool_usage_limit=settings.agent.tool_call_limit,
-        )
-        skills_prompt = self.registry.get_skill_instructions_prompt()
-        if skills_prompt:
-            system_prompt = f"{system_prompt.rstrip()}\n\n{skills_prompt}"
+        system_prompt = self._build_system_prompt()
 
         # Define the Core Agent
         self.core_agent = Agent(
@@ -153,6 +158,20 @@ class AgentManager:
 
         for tool in all_tools:
             self.core_agent.tool_plain(tool)
+
+        @self.core_agent.tool_plain
+        async def load_skill_details(skill_id: str) -> str:
+            """
+            Loads the full instructions for a specific skill and any prerequisite skills it declares.
+            Use this when a skill from the catalog is relevant and you need its full workflow guidance.
+            """
+
+            bundle = self.registry.load_skill_bundle(skill_id)
+            return (
+                "Authoritative skill guidance loaded below. Follow these instructions for the current task, "
+                "including any declared tool restrictions and prerequisite skills.\n\n"
+                f"{bundle}"
+            )
 
         @self.core_agent.tool_plain
         async def send_message_to_channel(channel: str, message: str, chat_id: str) -> str:

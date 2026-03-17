@@ -1,4 +1,5 @@
 from pathlib import Path
+from difflib import get_close_matches
 
 import logfire
 import yaml
@@ -12,6 +13,8 @@ class SkillMetadata(BaseModel):
     description: str
     version: str = "0.1.0"
     tools: list[str] = Field(default_factory=list)
+    required_skills: list[str] = Field(default_factory=list)
+    required_bins: list[str] = Field(default_factory=list)
 
 
 class Skill(BaseModel):
@@ -43,6 +46,29 @@ class SkillRegistry:
 
         return {}, content
 
+    def _extract_openclaw_requirements(self, frontmatter_meta: dict) -> tuple[list[str], list[str]]:
+        """Extract prerequisite skill and binary requirements from frontmatter metadata."""
+
+        metadata = frontmatter_meta.get("metadata", {})
+        if not isinstance(metadata, dict):
+            return [], []
+
+        openclaw = metadata.get("openclaw", {})
+        if not isinstance(openclaw, dict):
+            return [], []
+
+        requires = openclaw.get("requires", {})
+        if not isinstance(requires, dict):
+            return [], []
+
+        required_skills = requires.get("skills", [])
+        required_bins = requires.get("bins", [])
+
+        return (
+            required_skills if isinstance(required_skills, list) else [],
+            required_bins if isinstance(required_bins, list) else [],
+        )
+
     def discover(self):
         """Scans the skills directory for valid skill packages."""
 
@@ -73,6 +99,9 @@ class SkillRegistry:
                     metadata_dict["version"] = version
                     tools = frontmatter_meta.get("tools", [])
                     metadata_dict["tools"] = tools if isinstance(tools, list) else []
+                    required_skills, required_bins = self._extract_openclaw_requirements(frontmatter_meta)
+                    metadata_dict["required_skills"] = required_skills
+                    metadata_dict["required_bins"] = required_bins
 
                 # 2. Fallback to openai.yaml if frontmatter didn't provide specific fields
                 meta_yaml = skill_path / "agents" / "openai.yaml"
@@ -98,6 +127,24 @@ class SkillRegistry:
 
         self.skills = discovered_skills
 
+    def _format_tool_list(self, tools: list[str]) -> str:
+        return ", ".join(tools) if tools else "all built-in tools"
+
+    def _format_value_list(self, values: list[str]) -> str:
+        return ", ".join(values) if values else "none"
+
+    def _render_skill_detail_block(self, skill: Skill) -> str:
+        return "\n".join(
+            [
+                f"## Skill: {skill.metadata.name} (`{skill.id}`)",
+                f"Allowed tools: {self._format_tool_list(skill.metadata.tools)}",
+                f"Required skills: {self._format_value_list(skill.metadata.required_skills)}",
+                f"Required binaries: {self._format_value_list(skill.metadata.required_bins)}",
+                "",
+                skill.instructions.strip(),
+            ]
+        )
+
     def get_skill_list_prompt(self) -> str:
         """Return a markdown table describing the available skills."""
 
@@ -116,17 +163,17 @@ class SkillRegistry:
             lines.append(f"| {skill.id} | {description} |")
         return "\n".join(lines)
 
-    def get_skill_instructions_prompt(self) -> str | None:
-        """Return a prompt section that exposes all discovered skills to an agent."""
+    def get_skill_catalog_prompt(self) -> str | None:
+        """Return a prompt section that exposes only skill headers to an agent."""
 
         if not self.skills:
             return None
 
         lines = [
             "# Available Skills",
-            "You can use any of the following skills directly when they match the user's request.",
+            "You can discover and apply the following skills when they match the user's request.",
             "Do not treat skills as separate agents; they are reusable instructions available to you.",
-            "If a skill declares a `tools` list, only use those built-in tools while applying that skill.",
+            "This catalog only includes routing headers. Call `load_skill_details` before executing a non-trivial skill workflow.",
             "",
             self.get_skill_list_prompt(),
         ]
@@ -136,13 +183,48 @@ class SkillRegistry:
                 [
                     "",
                     f"## Skill: {skill.metadata.name} (`{skill.id}`)",
-                    (
-                        f"Allowed tools for this skill: {', '.join(skill.metadata.tools)}"
-                        if skill.metadata.tools
-                        else "Allowed tools for this skill: all built-in tools"
-                    ),
-                    skill.instructions.strip(),
+                    f"Description: {skill.metadata.description}",
+                    f"Allowed tools: {self._format_tool_list(skill.metadata.tools)}",
+                    f"Required skills: {self._format_value_list(skill.metadata.required_skills)}",
+                    f"Required binaries: {self._format_value_list(skill.metadata.required_bins)}",
                 ]
             )
 
         return "\n".join(lines)
+
+    def load_skill_bundle(self, skill_id: str) -> str:
+        """Return the full instructions for a skill and its prerequisites."""
+
+        if skill_id not in self.skills:
+            available = sorted(self.skills)
+            suggestions = get_close_matches(skill_id, available, n=3)
+            suggestion_text = f" Close matches: {', '.join(suggestions)}." if suggestions else ""
+            raise KeyError(f"Unknown skill '{skill_id}'. Available skills: {', '.join(available)}.{suggestion_text}")
+
+        ordered_skills: list[Skill] = []
+        visiting: list[str] = []
+        seen: set[str] = set()
+
+        def visit(current_skill_id: str) -> None:
+            if current_skill_id in seen:
+                return
+            if current_skill_id in visiting:
+                cycle_start = visiting.index(current_skill_id)
+                cycle = visiting[cycle_start:] + [current_skill_id]
+                raise ValueError(f"Cycle detected in skill prerequisites: {' -> '.join(cycle)}")
+            if current_skill_id not in self.skills:
+                raise KeyError(
+                    f"Skill '{skill_id}' requires missing skill '{current_skill_id}'."
+                )
+
+            visiting.append(current_skill_id)
+            skill = self.skills[current_skill_id]
+            for required_skill_id in skill.metadata.required_skills:
+                visit(required_skill_id)
+            visiting.pop()
+            seen.add(current_skill_id)
+            ordered_skills.append(skill)
+
+        visit(skill_id)
+
+        return "\n\n".join(self._render_skill_detail_block(skill) for skill in ordered_skills)
