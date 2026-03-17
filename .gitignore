@@ -9,3 +9,4 @@ workspace/skills/*
 !workspace/skills/routine-curator/
 !workspace/skills/clawhub/
 !workspace/skills/skill-curator/
+!workspace/skills/personal-google-workspace-assistant/
