@@ -1,7 +1,7 @@
 # Fergusson Project Plan: Omnipotent Personal Assistant
 
 ## Project Overview
-A centralized message broker (Gateway) with ingress from multiple channels (Discord, CLI, Cron). Messages are processed by a core Pydantic-AI agent that can delegate tasks to specialized sub-agents based on dynamic "skills" stored in the workspace.
+A centralized message broker (Gateway) with ingress from multiple channels (Discord, CLI, Cron). Messages are processed by a core Pydantic-AI agent that can apply dynamic "skills" stored in the workspace alongside its shared toolset.
 
 ## Core Technologies
 - **Package Manager**: `uv`
@@ -20,10 +20,10 @@ A centralized message broker (Gateway) with ingress from multiple channels (Disc
 
 ### 2. Agent System
 - **Core Agent**: The "Omnipotent" router. Has access to all tools and is responsible for intent recognition.
-- **Sub-Agents (Skills)**:
+- **Skills**:
     - Located in `workspace/skills/` (Codex Standard: `SKILL.md` + `openai.yaml`).
-    - Dynamically instantiated. `SKILL.md` acts as the system prompt.
-- **A2A Delegation**: Core agent uses a `delegate_to_expert` tool to call sub-agents in-process, passing context and returning the expert's findings.
+    - Loaded into agent context. `SKILL.md` provides reusable instructions.
+- **Skill Usage**: The agent applies matching skill instructions directly instead of instantiating a separate expert per skill.
 
 ### 3. Tools (`src/tools/`)
 - **Bash Tool**: Executes shell commands. Hazardous commands require explicit user confirmation via a guardrail mechanism.
@@ -65,12 +65,12 @@ fergusson/
 ### Phase 3: Core Agent & Tools
 - [x] Implement Core Pydantic-AI Agent.
 - [x] Build Bash and FS tools with permission guardrails.
-- [x] Implement Skill discovery and dynamic Sub-Agent factory.
+- [x] Implement Skill discovery and prompt-based skill loading.
 
-### Phase 4: A2A & Assembly
-- [x] Implement A2A delegation logic.
+### Phase 4: Agent Assembly
+- [x] Implement shared skill loading logic.
 - [x] Create the main execution loop in `main.py`.
-- [x] Final end-to-end testing (Discord -> Core -> Sub-agent -> Discord).
+- [x] Final end-to-end testing (Discord -> Core -> skill/tool usage -> Discord).
 
 ### Phase 5: Advanced Memory & Tooling
 - [ ] Implement Graph-based Memory using Neo4j.

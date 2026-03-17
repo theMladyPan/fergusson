@@ -45,7 +45,10 @@ class SkillRegistry:
     def discover(self):
         """Scans the skills directory for valid skill packages."""
 
+        discovered_skills: dict[str, Skill] = {}
+
         if not self.skills_dir.exists():
+            self.skills = discovered_skills
             return
 
         for skill_path in self.skills_dir.iterdir():
@@ -80,7 +83,7 @@ class SkillRegistry:
                         pass
 
                 skill_id = skill_path.name
-                self.skills[skill_id] = Skill(
+                discovered_skills[skill_id] = Skill(
                     id=skill_id,
                     instructions=instructions,
                     metadata=SkillMetadata(**metadata_dict),
@@ -88,20 +91,47 @@ class SkillRegistry:
                 )
                 logfire.info(f"Discovered skill: {skill_id} - {metadata_dict['description']}")
 
+        self.skills = discovered_skills
+
     def get_skill_list_prompt(self) -> str:
-        """Return a markdown table describing available sub-agents for the core agent's context."""
+        """Return a markdown table describing the available skills."""
 
         if not self.skills:
-            return "No specialized sub-agents available."
+            return "No skills available."
 
         lines = [
-            "Available specialized experts:",
+            "Available skills:",
             "",
-            "| Expert ID | Description |",
-            "|-----------|-------------|",
+            "| Skill ID | Description |",
+            "|----------|-------------|",
         ]
-        for s in self.skills.values():
+        for s in sorted(self.skills.values(), key=lambda skill: skill.id):
             # Escape pipe characters to maintain table structure
             description = s.metadata.description.replace("|", "\\|")
             lines.append(f"| {s.id} | {description} |")
+        return "\n".join(lines)
+
+    def get_skill_instructions_prompt(self) -> str:
+        """Return a prompt section that exposes all discovered skills to an agent."""
+
+        if not self.skills:
+            return "No skills available."
+
+        lines = [
+            "# Available Skills",
+            "You can use any of the following skills directly when they match the user's request.",
+            "Do not treat skills as separate agents; they are reusable instructions available to you.",
+            "",
+            self.get_skill_list_prompt(),
+        ]
+
+        for skill in sorted(self.skills.values(), key=lambda entry: entry.id):
+            lines.extend(
+                [
+                    "",
+                    f"## Skill: {skill.metadata.name} (`{skill.id}`)",
+                    skill.instructions.strip(),
+                ]
+            )
+
         return "\n".join(lines)

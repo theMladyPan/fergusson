@@ -1,6 +1,6 @@
 # Fergusson: Omnipotent Personal Assistant
 
-Fergusson is a highly modular, Python-native personal AI assistant. It acts as a centralized gateway routing messages between multiple channels (Discord, CLI, Cron) and an intelligent Pydantic-AI core agent capable of delegating specialized tasks to isolated sub-agents (Experts).
+Fergusson is a highly modular, Python-native personal AI assistant. It acts as a centralized gateway routing messages between multiple channels (Discord, CLI, Cron) and an intelligent Pydantic-AI core agent that can apply shared skills and tools to specialized tasks.
 
 ## Architecture
 
@@ -22,7 +22,7 @@ graph TD
         Core[Core Agent \n Pydantic-AI]
         Mem[(SQLite State)]
         
-        subgraph Experts / Skills
+        subgraph Shared Skills
             E_Email[Email Reader]
             E_Gog[Google Workspace]
             E_Bash[Bash / FS]
@@ -37,8 +37,8 @@ graph TD
     Redis -->|Consume| Core
     Core <-->|Context/History| Mem
     
-    Core -->|delegate_to_expert| E_Email
-    Core -->|delegate_to_expert| E_Gog
+    Core -->|apply skill + tool_call| E_Email
+    Core -->|apply skill + tool_call| E_Gog
     Core -->|tool_call| E_Bash
     
     Core -->|OutboundMessage| Redis
@@ -50,8 +50,8 @@ graph TD
 ### Core Components
 1. **Redis Broker**: Acts as the central nervous system decoupling the ingress channels from the LLM execution loop.
 2. **Channel Ingress**: Independent scripts or async tasks (e.g., Discord WebSocket client, CLI loop) that publish standardized `InboundMessage` objects to the broker.
-3. **Core Agent**: An "omnipotent" router built on `pydantic-ai`. It handles intent recognition, maintains conversation state (via local SQLite), and decides whether to use native tools or delegate.
-4. **Skills/Sub-Agents**: Dynamically loaded experts based on the [Claude Code Skills standard](https://code.claude.com/docs/en/skills) (`SKILL.md` with YAML frontmatter). The Core Agent spawns these via Agent-to-Agent (A2A) delegation.
+3. **Core Agent**: An "omnipotent" router built on `pydantic-ai`. It handles intent recognition, maintains conversation state (via local SQLite), and decides which native tools and skills to apply.
+4. **Skills**: Dynamically loaded instructions based on the [Claude Code Skills standard](https://code.claude.com/docs/en/skills) (`SKILL.md` with YAML frontmatter). Skills are loaded into agent context instead of being spawned as separate per-skill agents.
 
 ## Why Fergusson? (vs. Nanobot or OpenClaw)
 
@@ -68,5 +68,5 @@ OpenClaw uses a highly complex custom WebSocket gateway written in TypeScript. N
 **3. Python-Native AI Ecosystem (vs. OpenClaw)**
 OpenClaw's heavy TypeScript ecosystem creates friction when trying to integrate modern Python AI libraries (HuggingFace, PyTorch, Pandas). Fergusson remains purely Python-native, meaning any new AI research tool can be wrapped as a Pydantic-AI skill in minutes.
 
-**4. True Sub-Agent Isolation**
-Instead of dumping all tools into one massive LLM context window, Fergusson uses Progressive Disclosure via the `SKILL.md` registry. The Core Agent only knows the *metadata* of an expert. When required, an isolated Pydantic-AI sub-agent is instantiated with its own specific system prompt and focused toolset, drastically reducing token usage and context confusion.
+**4. Shared Skill Workflows**
+Instead of creating a separate agent for every skill, Fergusson keeps skills as reusable instructions that any agent can apply alongside the shared toolset. This keeps behavior consistent across the core agent and future sub-agents while still letting the runtime discover skills dynamically from the `SKILL.md` registry.
