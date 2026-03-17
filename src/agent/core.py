@@ -133,7 +133,7 @@ class AgentManager:
             tool_usage_limit=settings.agent.tool_call_limit,
         )
         skills_prompt = self.registry.get_skill_instructions_prompt()
-        if skills_prompt != "No skills available.":
+        if skills_prompt:
             system_prompt = f"{system_prompt.rstrip()}\n\n{skills_prompt}"
 
         # Define the Core Agent

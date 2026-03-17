@@ -116,11 +116,11 @@ class SkillRegistry:
             lines.append(f"| {skill.id} | {description} |")
         return "\n".join(lines)
 
-    def get_skill_instructions_prompt(self) -> str:
+    def get_skill_instructions_prompt(self) -> str | None:
         """Return a prompt section that exposes all discovered skills to an agent."""
 
         if not self.skills:
-            return "No skills available."
+            return None
 
         lines = [
             "# Available Skills",
