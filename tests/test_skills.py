@@ -386,6 +386,8 @@ Condense findings carefully.
 
     prompt = AgentManager._build_system_prompt(manager)
 
+    assert "Treat those headers as discovery hints, not full instructions." in prompt
+    assert "you MUST call `load_skill_details` before doing substantive work." in prompt
     assert "## Skill: Researcher (`researcher`)" in prompt
     assert "Description: Search the web and summarize findings." in prompt
     assert "Allowed tools: get_content_from_url" in prompt
