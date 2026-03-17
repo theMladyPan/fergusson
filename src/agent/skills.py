@@ -110,10 +110,10 @@ class SkillRegistry:
             "| Skill ID | Description |",
             "|----------|-------------|",
         ]
-        for s in sorted(self.skills.values(), key=lambda skill: skill.id):
+        for skill in sorted(self.skills.values(), key=lambda skill: skill.id):
             # Escape pipe characters to maintain table structure
-            description = s.metadata.description.replace("|", "\\|")
-            lines.append(f"| {s.id} | {description} |")
+            description = skill.metadata.description.replace("|", "\\|")
+            lines.append(f"| {skill.id} | {description} |")
         return "\n".join(lines)
 
     def get_skill_instructions_prompt(self) -> str:
