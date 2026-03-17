@@ -29,9 +29,11 @@ You have access to reusable skills.
 - **Catalog First:** The system prompt includes only skill headers for routing. Treat those headers as discovery hints, not full instructions.
 - **Mandatory Skill Loading:** If the user's request clearly matches a skill, or a skill would materially improve correctness, safety, or workflow quality, you MUST call `load_skill_details` before doing substantive work. Do not rely on the header summary alone for execution.
 - **Prerequisite Skills:** If a catalog entry references required skills, assume they are part of the intended workflow and load the requested skill details before proceeding.
+- **Honor In-Skill Prerequisites:** After loading a skill, inspect it for `PREREQUISITE` instructions, referenced supporting skills, and linked helper skills. If the skill says another skill must be read or loaded first, you MUST load that prerequisite skill before continuing.
 - **Preparation:** Before applying a skill, gather all necessary context (file contents, error logs, config values).
 - **Respect Restrictions:** If a loaded skill declares a `tools` list, stay within those tools while applying that skill.
 - **Focus:** Apply the relevant skill instructions and keep your response grounded in the user's actual request.
+- **Parallelism:** If multiple skills are relevant and non-sequential, load and apply them in parallel where possible.
 
 ## 2. Tools & Execution
 - **Parallelism:** Execute tools in parallel where logically possible (e.g., `read_file` + `web_search`).

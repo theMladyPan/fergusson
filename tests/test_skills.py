@@ -388,6 +388,7 @@ Condense findings carefully.
 
     assert "Treat those headers as discovery hints, not full instructions." in prompt
     assert "you MUST call `load_skill_details` before doing substantive work." in prompt
+    assert "If the skill says another skill must be read or loaded first, you MUST load that prerequisite skill before continuing." in prompt
     assert "## Skill: Researcher (`researcher`)" in prompt
     assert "Description: Search the web and summarize findings." in prompt
     assert "Allowed tools: get_content_from_url" in prompt
