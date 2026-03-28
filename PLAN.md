@@ -80,6 +80,8 @@ fergusson/
 - [x] Expand tools to include web content fetching (httpx + markitdown).
 - [ ] Expand tools to include web search.
 - [x] Co-manage AGENTS.md (dynamic creation and updating of skills).
+- [x] Fix relational-memory data quality in Neo4j by adding exact deduplication, prompt-led extractor rules with explicit do/don't examples, similarity lookup before extraction writes, and `replace_existing` handling for corrections.
+- [ ] Fix duplicate writes into `MEMORY.md` by adding deduplication and/or stricter write rules.
 
 ### Phase 6: Scheduled & Background Tasks
 - [x] Implement periodic background tasks via ROUTINE.md.

@@ -24,8 +24,11 @@ Use this file to store critical user facts, preferences, and decisions.
 ## Relational Memory
 Durable structured memories may also be stored in Neo4j.
 - Use `search_relational_memory` for preferences, identities, relationships, organizations, and other durable facts.
+- Search first before writing any durable fact that may already exist in the database.
 - Use `upsert_relational_memory` for explicit or highly durable new facts that belong in structured memory.
-- Do not mirror every conversational turn into relational memory.
+- If the same fact is already present, do not store it again.
+- If the user corrects a durable fact, call `upsert_relational_memory` with `replace_existing=true` and update only the corrected predicate/value instead of re-storing every related fact.
+- Do not store generic classifications, demographic labels, or mirror every conversational turn into relational memory.
 
 # CRITICAL RULES:
 

@@ -84,7 +84,7 @@ The storage model is intentionally simple:
   A thing or person, such as `user`, `rubint`, `metrotech`
 
 - `MemoryAssertion`
-  A fact about an entity, such as `preferred_editor = Helix`
+  A provenance-bearing fact about an entity, such as `preferred_editor = Helix`
 
 - `OBJECT` relation
   Used when the right-hand side is another entity instead of plain text
@@ -132,9 +132,22 @@ If later you say:
 
 > I switched to Neovim.
 
-The old `preferred_editor = Helix` assertion is not deleted. It is marked `superseded`, and a new active assertion is created for `Neovim`.
+The old `preferred_editor = Helix` assertion is not deleted. It is marked `superseded`, and a new active assertion is created for `Neovim` when written with `replace_existing=true`.
 
 So the assistant keeps history of the fact, but uses the newest version.
+
+If you later repeat the same exact fact again:
+
+> Remember again that I prefer Neovim.
+
+the system does not create another assertion. It touches the existing fact by updating `last_seen_at`.
+
+For multi-valued relationships like `has_child`, distinct values can coexist:
+
+- `user -> has_child -> Leonard`
+- `user -> has_child -> Paulina`
+
+Those stay active together instead of superseding each other.
 
 ## How Search Works
 
@@ -171,7 +184,10 @@ Then it decides whether there are durable facts worth saving.
 
 It is instructed to keep things selective:
 
-- save preferences, identities, relationships, stable facts
+- use explicit do/don't examples in the extractor prompt
+- search existing memory context first and omit facts that are already present
+- call similarity lookup before emitting a candidate memory when replacement/dedup is unclear
+- use `replace_existing=true` only when the user clearly corrected/replaced a prior fact
 - ignore temporary plans, tool failures, one-off errors, and weak guesses
 
 ## How It Affects The Agent

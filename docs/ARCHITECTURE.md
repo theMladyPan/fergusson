@@ -57,15 +57,17 @@ Neo4j adds an optional structured long-term memory layer on top of the shared SQ
 
 **Data model:**
 *   `(:MemoryEntity)` stores durable subjects/objects such as the user, organizations, and named entities.
-*   `(:MemoryAssertion)` stores durable facts with provenance, confidence, and active/superseded status.
-*   `(:MemoryEntity)-[:ASSERTS]->(:MemoryAssertion)` links subjects to facts.
+*   `(:MemoryAssertion)` stores durable facts with provenance, confidence, active/superseded status, and a deterministic `fact_key` used for deduplication.
+*   `(:MemoryEntity)-[:ASSERTS]->(:MemoryAssertion)` links subjects to facts and remains the provenance-bearing source of truth.
 *   `(:MemoryAssertion)-[:OBJECT]->(:MemoryEntity)` is used when the fact points to another entity instead of a scalar value.
 
 **Behavior:**
 *   The capability performs a lightweight memory lookup before model requests and injects a concise `# Relational Memory Context` block only when relevant matches exist.
 *   The model can explicitly call `search_relational_memory(...)` and `upsert_relational_memory(...)`.
-*   After a successful turn, a separate extractor agent running on the fast model may persist durable inferred facts.
-*   Conflicting facts are superseded rather than deleted, preserving provenance/history in Neo4j.
+*   Before writing, the agent is instructed to search first and skip facts that already exist. The store enforces idempotency with `fact_key`, so exact duplicate writes become no-op touches instead of new assertions.
+*   After a successful turn, a separate extractor agent running on the fast model may persist durable inferred facts. Extraction behavior is guided by a Jinja prompt template under `src/prompt/` with explicit do/don't examples rather than a hardcoded predicate allowlist.
+*   The extractor can call a similarity tool to inspect nearby active facts before deciding whether a candidate should be omitted, added, or written with `replace_existing=true`.
+*   When `replace_existing=true`, conflicting active assertions for the same subject+predicate are superseded; otherwise additive facts can coexist as separate active assertions.
 *   Cron-originated turns can create relational memories when the source content is durable.
 
 **Operational notes:**

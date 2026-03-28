@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -78,13 +78,22 @@ class Neo4jConfig(BaseSettings):
     uri: str | None = None
     user: str | None = None
     password: str | None = None
-    database: str = "neo4j"
+    database: str | None = None
     enabled: bool = True
     model_config = SettingsConfigDict(
         env_prefix="NEO4J_",
         env_file=".env",
         extra="ignore",
     )
+
+    @field_validator("database", mode="before")
+    @classmethod
+    def blank_database_to_none(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     @property
     def is_configured(self) -> bool:
