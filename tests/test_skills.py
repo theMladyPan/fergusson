@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from pydantic_ai.exceptions import UsageLimitExceeded
 
 os.environ["DEBUG"] = "false"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -412,9 +413,38 @@ async def test_agent_manager_run_passes_usage_limits(monkeypatch):
     assert captured["kwargs"]["deps"].chat_id == "cli_chat"
 
 
-def test_personal_google_workspace_skill_encodes_gws_cli_fallbacks():
+@pytest.mark.asyncio
+async def test_agent_manager_run_uses_recovery_agent_after_usage_limit():
+    call_order = []
+    captured = {}
+
+    async def core_run(user_input, **kwargs):
+        call_order.append("core")
+        raise UsageLimitExceeded("tool limit reached")
+
+    async def recovery_run(user_input, **kwargs):
+        call_order.append("recovery")
+        captured["user_input"] = user_input
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(output="Recovered response")
+
+    manager = AgentManager.__new__(AgentManager)
+    manager.core_agent = SimpleNamespace(run=core_run)
+    manager.tool_limit_recovery_agent = SimpleNamespace(run=recovery_run)
+
+    result = await AgentManager.run(manager, "hello", history=[], chat_id="cli_chat", channel="cli")
+
+    assert result.output == "Recovered response"
+    assert call_order == ["core", "recovery"]
+    assert "runtime tool-call limit" in captured["user_input"]
+    recovery_limits = captured["kwargs"]["usage_limits"]
+    assert recovery_limits.request_limit is None
+    assert recovery_limits.tool_calls_limit == 0
+
+
+def test_common_gws_operations_skill_encodes_gws_cli_fallbacks():
     repo_root = Path(__file__).resolve().parents[1]
-    skill_path = repo_root / "workspace" / "skills" / "personal-google-workspace-assistant" / "SKILL.md"
+    skill_path = repo_root / "workspace" / "skills" / "common-gws-opeartions" / "SKILL.md"
 
     content = skill_path.read_text(encoding="utf-8")
 
@@ -427,6 +457,6 @@ def test_personal_google_workspace_skill_encodes_gws_cli_fallbacks():
     registry = SkillRegistry(repo_root / "workspace" / "skills")
     registry.discover()
 
-    skill = registry.skills["personal-google-workspace-assistant"]
+    skill = registry.skills["common-gws-opeartions"]
     assert skill.metadata.required_bins == ["gws"]
     assert skill.metadata.missing_required_skills == []

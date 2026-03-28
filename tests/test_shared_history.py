@@ -5,7 +5,6 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
-from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.messages import ModelRequest, ModelResponse, SystemPromptPart, TextPart, UserPromptPart
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -211,11 +210,6 @@ class _FakeBus:
         self.outbound_messages.append(msg)
 
 
-class _UsageLimitManager:
-    async def run(self, user_input, history=None, chat_id="cli", channel="cli"):
-        raise UsageLimitExceeded("tool calls exceeded")
-
-
 @pytest.mark.asyncio
 async def test_agent_loop_uses_shared_history_but_preserves_outbound_chat_id(session_factory, monkeypatch):
     monkeypatch.setattr("src.runners.async_session", session_factory)
@@ -251,28 +245,3 @@ async def test_agent_loop_uses_shared_history_but_preserves_outbound_chat_id(ses
     assert manager.calls[0]["chat_id"] == "discord-channel-42"
     assert manager.calls[0]["channel"] == "discord"
 
-
-@pytest.mark.asyncio
-async def test_agent_loop_returns_specific_message_for_usage_limit(session_factory, monkeypatch):
-    monkeypatch.setattr("src.runners.async_session", session_factory)
-
-    inbound = InboundMessage(
-        sender_id="user-1",
-        username="User",
-        chat_id="cli_chat",
-        content="Do a huge multi-step thing.",
-        channel="cli",
-        metadata={"message_id": "msg-2"},
-    )
-
-    bus = _FakeBus(inbound)
-    manager = _UsageLimitManager()
-    archiver = _FakeArchiver()
-
-    await agent_loop(bus, manager, archiver)
-
-    assert len(bus.outbound_messages) == 1
-    outbound = bus.outbound_messages[0]
-    assert outbound.chat_id == "cli_chat"
-    assert outbound.channel == "cli"
-    assert "runtime tool-call limit" in outbound.content

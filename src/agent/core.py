@@ -9,12 +9,13 @@ from httpx import AsyncClient, HTTPStatusError
 from jinja2 import Template
 from pydantic_ai import Agent, AgentRunResult, RunContext
 from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
-from pydantic_ai.usage import UsageLimits
+from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.models.google import GoogleModel
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.google import GoogleProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.retries import AsyncTenacityTransport, RetryConfig, wait_retry_after
+from pydantic_ai.usage import UsageLimits
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from src.agent.memory import get_recent_delivery_destinations
@@ -152,8 +153,31 @@ class AgentManager:
             tools=[duckduckgo_search_tool()],
         )
 
+        self.tool_limit_recovery_agent = Agent(
+            model=self.model,
+            name="ToolLimitRecoveryAgent",
+            deps_type=AgentDeps,
+            instructions=(
+                f"{system_prompt}\n\n"
+                "# Tool Limit Recovery\n"
+                "You are handling a turn where the runtime tool-call limit was reached. "
+                "You have no tools in this recovery mode. Respond directly to the user from the existing conversation context only. "
+                "Explain briefly that you hit the tool-call limit for this turn, avoid internal exception names, and ask for a narrower follow-up if needed."
+            ),
+            tool_timeout=settings.agent.tool_timeout,
+            retries=settings.agent.retries,
+        )
+
         @self.core_agent.system_prompt
         def dynamic_context_prompt(ctx: RunContext[AgentDeps]) -> str:
+            return (
+                "\n\nCURRENT CONTEXT:\n"
+                f"You are currently operating in channel: '{ctx.deps.channel}' and chat_id: '{ctx.deps.chat_id}'. "
+                f"All channels share the same short-term history thread: '{ctx.deps.history_thread_id}'."
+            )
+
+        @self.tool_limit_recovery_agent.system_prompt
+        def dynamic_recovery_context_prompt(ctx: RunContext[AgentDeps]) -> str:
             return (
                 "\n\nCURRENT CONTEXT:\n"
                 f"You are currently operating in channel: '{ctx.deps.channel}' and chat_id: '{ctx.deps.chat_id}'. "
@@ -219,14 +243,26 @@ class AgentManager:
             history_thread_id=settings.shared_history_thread_id,
         )
 
-        result = await self.core_agent.run(
-            user_input,
-            deps=deps,
-            message_history=history,
-            usage_limits=UsageLimits(
-                request_limit=None,
-                tool_calls_limit=settings.agent.tool_call_limit,
-            ),
-        )
-
-        return result
+        try:
+            return await self.core_agent.run(
+                user_input,
+                deps=deps,
+                message_history=history,
+                usage_limits=UsageLimits(
+                    request_limit=None,
+                    tool_calls_limit=settings.agent.tool_call_limit,
+                ),
+            )
+        except UsageLimitExceeded as exc:
+            logfire.warning(f"Agent usage limit exceeded: {exc}")
+            recovery_prompt = (
+                f"{user_input}\n\n"
+                "[System notice: The previous attempt hit the runtime tool-call limit for this turn. "
+                "Respond without calling tools, based only on available context.]"
+            )
+            return await self.tool_limit_recovery_agent.run(
+                recovery_prompt,
+                deps=deps,
+                message_history=history,
+                usage_limits=UsageLimits(request_limit=None, tool_calls_limit=0),
+            )
