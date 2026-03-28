@@ -1,6 +1,6 @@
 ---
 name: routine-curator
-description: An expert in managing user routines and schedules. Use this skill to add, modify, or audit the background tasks defined in ROUTINE.md.
+description: An expert in managing user routines and schedules. **Always** use this skill to add, modify, or audit the background tasks defined in ROUTINE.md.
 ---
 
 # Routine Curator Instructions
@@ -21,7 +21,10 @@ The `ROUTINE.md` file must follow this structure:
 
 # Tasks
 
-## Hourly Tasks
+## One shot
+[List of tasks to run once, with preferred execution time] 
+
+## Hourly
 [List of tasks to run every hour]
 
 ## Daily

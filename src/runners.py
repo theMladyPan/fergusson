@@ -7,13 +7,19 @@ import logfire
 
 from src.agent.archiver import Archiver
 from src.agent.core import AgentManager
-from src.agent.memory import add_message, check_and_compact, get_history, get_inbound_history_role, get_shared_history_thread_id
+from src.agent.memory import (
+    add_message,
+    check_and_compact,
+    get_history,
+    get_inbound_history_role,
+    get_shared_history_thread_id,
+)
 from src.broker.bus import MessageBus
 from src.broker.schemas import InboundMessage, MessageMetadata, OutboundMessage, TokenUsage
 from src.config import settings
 from src.db.session import async_session
 from src.services.elevenlabs import speech_to_text, text_to_speech
-from src.tools.fs import read_file_content_with_line_numbers
+from src.tools.fs import read_file_content
 
 
 async def agent_loop(bus: MessageBus, manager: AgentManager, archiver: Archiver):
@@ -184,13 +190,19 @@ async def routine_loop(bus: MessageBus, interval: int = 3600):
                 # The agent will parse this.
                 # We must be clear this is a system instruction to check routines.
 
-                content = await read_file_content_with_line_numbers(
+                content = await read_file_content(
                     str(routine_path),
                     elevated_privileges=True,
                 )
 
                 current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                prompt = f"SYSTEM ALERT: It is now {current_time}.\n\nReview the following ROUTINE.md (with line numbers) and execute any tasks that are due now:\n\n{content}"
+                prompt = f"""SYSTEM ALERT: It is now {current_time}.
+Review the following routine and execute any tasks that are due now.
+Content of the workspace/ROUTINE.md file:
+```markdown
+{content}
+```
+"""
 
                 chat_id = settings.discord.default_channel_id if settings.discord.default_channel_id else "cron_chat"
                 channel = "discord" if settings.discord.default_channel_id else "cron"
