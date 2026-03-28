@@ -71,7 +71,7 @@ class ElevenLabsConfig(BaseSettings):
 class AgentConfig(BaseSettings):
     tool_timeout: int = Field(..., description="Default timeout for tools used by this agent")
     retries: int = Field(..., description="Number of retries for this agent")
-    tool_call_limit: int = Field(..., description="Number of tool calls a agent can invoke")
+    request_limit: int = Field(..., description="Maximum number of model requests allowed in a single run")
 
 
 class Settings(BaseSettings):
@@ -80,12 +80,12 @@ class Settings(BaseSettings):
     agent: AgentConfig = AgentConfig(
         tool_timeout=20,
         retries=2,
-        tool_call_limit=4,
+        request_limit=10,
     )
     subagent: AgentConfig = AgentConfig(
         tool_timeout=5,
         retries=3,
-        tool_call_limit=7,
+        request_limit=10,
     )
     max_conversation_history_len: int = Field(
         15,

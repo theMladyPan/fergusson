@@ -1,8 +1,10 @@
 import os
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+from pydantic_ai.exceptions import UsageLimitExceeded
 
 os.environ["DEBUG"] = "false"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -68,6 +70,7 @@ description: Search the web and summarize findings.
 
     assert "Do not treat skills as separate agents" in prompt
     assert "Call `load_skill_details` before executing a non-trivial skill workflow." in prompt
+    assert "Required skills are hints only. They are not loaded automatically" in prompt
     assert "## Skill: Researcher (`researcher`)" in prompt
     assert "Description: Search the web and summarize findings." in prompt
     assert "Allowed tools: all built-in tools" in prompt
@@ -190,10 +193,11 @@ Only inspect repository state and summarize findings.
     assert "Allowed tools: read_file_content, list_files" in prompt
     assert "Required skills: repo-map" in prompt
     assert "Required binaries: git" in prompt
+    assert "Missing required skills: repo-map" in prompt
     assert "Only inspect repository state and summarize findings." not in prompt
 
 
-def test_load_skill_bundle_returns_requested_skill_content(tmp_path: Path):
+def test_load_skill_details_returns_requested_skill_content_only(tmp_path: Path):
     _write_skill(
         tmp_path,
         "researcher",
@@ -210,14 +214,14 @@ description: Search the web and summarize findings.
     registry = SkillRegistry(tmp_path)
     registry.discover()
 
-    bundle = registry.load_skill_bundle("researcher")
+    details = registry.load_skill_details("researcher")
 
-    assert "## Skill: Researcher (`researcher`)" in bundle
-    assert "Gather current sources." in bundle
-    assert "Cite the sources in the final answer." in bundle
+    assert "## Skill: Researcher (`researcher`)" in details
+    assert "Gather current sources." in details
+    assert "Cite the sources in the final answer." in details
 
 
-def test_load_skill_bundle_includes_prerequisites_in_dependency_order(tmp_path: Path):
+def test_load_skill_details_does_not_inline_prerequisite_skills(tmp_path: Path):
     _write_skill(
         tmp_path,
         "gws-shared",
@@ -266,14 +270,16 @@ Persona instructions.
     registry = SkillRegistry(tmp_path)
     registry.discover()
 
-    bundle = registry.load_skill_bundle("persona")
+    details = registry.load_skill_details("persona")
 
-    assert bundle.index("## Skill: gws-shared (`gws-shared`)") < bundle.index("## Skill: gws-gmail (`gws-gmail`)")
-    assert bundle.index("## Skill: gws-gmail (`gws-gmail`)") < bundle.index("## Skill: persona (`persona`)")
-    assert bundle.count("## Skill: gws-shared (`gws-shared`)") == 1
+    assert "## Skill: persona (`persona`)" in details
+    assert "Required skills: gws-gmail, gws-shared" in details
+    assert "Loading behavior: Required skills listed here are not loaded automatically." in details
+    assert "## Skill: gws-shared (`gws-shared`)" not in details
+    assert "## Skill: gws-gmail (`gws-gmail`)" not in details
 
 
-def test_load_skill_bundle_detects_cycles(tmp_path: Path):
+def test_discover_warns_about_missing_required_skills_and_surfaces_them(tmp_path: Path):
     _write_skill(
         tmp_path,
         "alpha",
@@ -284,37 +290,24 @@ metadata:
   openclaw:
     requires:
       skills:
-        - beta
+        - gamma
 ---
 
 Alpha instructions.
-""",
-    )
-    _write_skill(
-        tmp_path,
-        "beta",
-        """---
-name: beta
-description: Beta skill.
-metadata:
-  openclaw:
-    requires:
-      skills:
-        - alpha
----
-
-Beta instructions.
 """,
     )
 
     registry = SkillRegistry(tmp_path)
     registry.discover()
 
-    with pytest.raises(ValueError, match="Cycle detected in skill prerequisites: alpha -> beta -> alpha"):
-        registry.load_skill_bundle("alpha")
+    prompt = registry.get_skill_catalog_prompt()
+    details = registry.load_skill_details("alpha")
+
+    assert "Missing required skills: gamma" in prompt
+    assert "Missing required skills: gamma" in details
 
 
-def test_load_skill_bundle_reports_unknown_skill_with_suggestions(tmp_path: Path):
+def test_load_skill_details_reports_unknown_skill_with_suggestions(tmp_path: Path):
     _write_skill(
         tmp_path,
         "gws-gmail",
@@ -342,7 +335,7 @@ Drive instructions.
     registry.discover()
 
     with pytest.raises(KeyError, match="Unknown skill 'gws-gmai'.*Close matches: gws-gmail"):
-        registry.load_skill_bundle("gws-gmai")
+        registry.load_skill_details("gws-gmai")
 
 
 def test_agent_system_prompt_includes_skill_catalog_not_full_bodies(tmp_path: Path):
@@ -388,7 +381,8 @@ Condense findings carefully.
 
     assert "Treat those headers as discovery hints, not full instructions." in prompt
     assert "you MUST call `load_skill_details` before doing substantive work." in prompt
-    assert "If the skill says another skill must be read or loaded first, you MUST load that prerequisite skill before continuing." in prompt
+    assert "`load_skill_details` loads only the requested skill." in prompt
+    assert "you MUST load that prerequisite skill explicitly before continuing." in prompt
     assert "## Skill: Researcher (`researcher`)" in prompt
     assert "Description: Search the web and summarize findings." in prompt
     assert "Allowed tools: get_content_from_url" in prompt
@@ -396,3 +390,71 @@ Condense findings carefully.
     assert "Required binaries: curl" in prompt
     assert "Gather current sources." not in prompt
     assert "Condense findings carefully." not in prompt
+
+
+@pytest.mark.asyncio
+async def test_agent_manager_run_passes_usage_limits(monkeypatch):
+    captured = {}
+
+    async def fake_run(user_input, **kwargs):
+        captured["user_input"] = user_input
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(output="ok")
+
+    manager = AgentManager.__new__(AgentManager)
+    manager.core_agent = SimpleNamespace(run=fake_run)
+
+    await AgentManager.run(manager, "hello", history=[], chat_id="cli_chat", channel="cli")
+
+    usage_limits = captured["kwargs"]["usage_limits"]
+    assert usage_limits.request_limit == 10
+    assert usage_limits.tool_calls_limit is None
+    assert captured["kwargs"]["message_history"] == []
+    assert captured["kwargs"]["deps"].chat_id == "cli_chat"
+
+
+@pytest.mark.asyncio
+async def test_agent_manager_run_uses_recovery_agent_after_usage_limit():
+    call_order = []
+    captured = {}
+
+    async def core_run(user_input, **kwargs):
+        call_order.append("core")
+        raise UsageLimitExceeded("tool limit reached")
+
+    async def recovery_run(user_input, **kwargs):
+        call_order.append("recovery")
+        captured["user_input"] = user_input
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(output="Recovered response")
+
+    manager = AgentManager.__new__(AgentManager)
+    manager.core_agent = SimpleNamespace(run=core_run)
+    manager.request_limit_recovery_agent = SimpleNamespace(run=recovery_run)
+
+    result = await AgentManager.run(manager, "hello", history=[], chat_id="cli_chat", channel="cli")
+
+    assert result.output == "Recovered response"
+    assert call_order == ["core", "recovery"]
+    assert "runtime request limit" in captured["user_input"]
+    assert "usage_limits" not in captured["kwargs"]
+
+
+def test_common_gws_operations_skill_encodes_gws_cli_fallbacks():
+    repo_root = Path(__file__).resolve().parents[1]
+    skill_path = repo_root / "workspace" / "skills" / "common-gws-opeartions" / "SKILL.md"
+
+    content = skill_path.read_text(encoding="utf-8")
+
+    assert "gws gmail +triage --max 10 --format table" in content
+    assert "gws gmail list" in content
+    assert "do not guess alternate helper subcommands" in content
+    assert "gws gmail --help" in content
+    assert "gws schema <resource>.<method>" in content
+
+    registry = SkillRegistry(repo_root / "workspace" / "skills")
+    registry.discover()
+
+    skill = registry.skills["common-gws-opeartions"]
+    assert skill.metadata.required_bins == ["gws"]
+    assert skill.metadata.missing_required_skills == []

@@ -244,3 +244,4 @@ async def test_agent_loop_uses_shared_history_but_preserves_outbound_chat_id(ses
     assert rows[1].metadata_json["transport_chat_id"] == "discord-channel-42"
     assert manager.calls[0]["chat_id"] == "discord-channel-42"
     assert manager.calls[0]["channel"] == "discord"
+

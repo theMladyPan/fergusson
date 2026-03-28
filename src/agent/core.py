@@ -9,11 +9,13 @@ from httpx import AsyncClient, HTTPStatusError
 from jinja2 import Template
 from pydantic_ai import Agent, AgentRunResult, RunContext
 from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
+from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai.models.google import GoogleModel
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.google import GoogleProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.retries import AsyncTenacityTransport, RetryConfig, wait_retry_after
+from pydantic_ai.usage import UsageLimits
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from src.agent.memory import get_recent_delivery_destinations
@@ -118,7 +120,7 @@ class AgentManager:
             current_date=datetime.now().strftime("%B %d, %Y"),
             personality_md_content=personality_md_content,
             memory_md_content=memory_md_content,
-            tool_usage_limit=settings.agent.tool_call_limit,
+            request_limit=settings.agent.request_limit,
         )
         skills_prompt = self.registry.get_skill_catalog_prompt()
         if skills_prompt:
@@ -151,8 +153,31 @@ class AgentManager:
             tools=[duckduckgo_search_tool()],
         )
 
+        self.request_limit_recovery_agent = Agent(
+            model=self.model,
+            name="RequestLimitRecoveryAgent",
+            deps_type=AgentDeps,
+            instructions=(
+                f"{system_prompt}\n\n"
+                "# Request Limit Recovery\n"
+                "You are handling a turn where the runtime request limit was reached. "
+                "You have no tools in this recovery mode. Respond directly to the user from the existing conversation context only. "
+                "Explain briefly that this turn took too many attempts, avoid internal exception names, and ask for a narrower follow-up if needed."
+            ),
+            tool_timeout=settings.agent.tool_timeout,
+            retries=settings.agent.retries,
+        )
+
         @self.core_agent.system_prompt
         def dynamic_context_prompt(ctx: RunContext[AgentDeps]) -> str:
+            return (
+                "\n\nCURRENT CONTEXT:\n"
+                f"You are currently operating in channel: '{ctx.deps.channel}' and chat_id: '{ctx.deps.chat_id}'. "
+                f"All channels share the same short-term history thread: '{ctx.deps.history_thread_id}'."
+            )
+
+        @self.request_limit_recovery_agent.system_prompt
+        def dynamic_recovery_context_prompt(ctx: RunContext[AgentDeps]) -> str:
             return (
                 "\n\nCURRENT CONTEXT:\n"
                 f"You are currently operating in channel: '{ctx.deps.channel}' and chat_id: '{ctx.deps.chat_id}'. "
@@ -165,15 +190,17 @@ class AgentManager:
         @self.core_agent.tool_plain
         async def load_skill_details(skill_id: str) -> str:
             """
-            Loads the full instructions for a specific skill and any prerequisite skills it declares.
+            Loads the full instructions for a specific skill only.
+            Required skills are not loaded automatically and must be loaded separately if needed.
             Use this when a skill from the catalog is relevant and you need its full workflow guidance.
             """
 
-            bundle = self.registry.load_skill_bundle(skill_id)
+            skill_details = self.registry.load_skill_details(skill_id)
             return (
-                "Authoritative skill guidance loaded below. Follow these instructions for the current task, "
-                "including any declared tool restrictions and prerequisite skills.\n\n"
-                f"{bundle}"
+                "Authoritative skill guidance for the requested skill is loaded below. "
+                "Follow these instructions for the current task. Required skills listed below are hints only "
+                "and are not loaded automatically.\n\n"
+                f"{skill_details}"
             )
 
         @self.core_agent.tool_plain
@@ -216,10 +243,24 @@ class AgentManager:
             history_thread_id=settings.shared_history_thread_id,
         )
 
-        result = await self.core_agent.run(
-            user_input,
-            deps=deps,
-            message_history=history,
-        )
-
-        return result
+        try:
+            return await self.core_agent.run(
+                user_input,
+                deps=deps,
+                message_history=history,
+                usage_limits=UsageLimits(
+                    request_limit=settings.agent.request_limit,
+                ),
+            )
+        except UsageLimitExceeded as exc:
+            logfire.warning(f"Agent usage limit exceeded: {exc}")
+            recovery_prompt = (
+                f"{user_input}\n\n"
+                "[System notice: The previous attempt hit the runtime request limit for this turn. "
+                "Respond without calling tools, based only on available context.]"
+            )
+            return await self.request_limit_recovery_agent.run(
+                recovery_prompt,
+                deps=deps,
+                message_history=history,
+            )

@@ -15,6 +15,7 @@ class SkillMetadata(BaseModel):
     tools: list[str] = Field(default_factory=list)
     required_skills: list[str] = Field(default_factory=list)
     required_bins: list[str] = Field(default_factory=list)
+    missing_required_skills: list[str] = Field(default_factory=list)
 
 
 class Skill(BaseModel):
@@ -125,6 +126,19 @@ class SkillRegistry:
                 )
                 logfire.info(f"Discovered skill: {skill_id} - {metadata_dict['description']}")
 
+        for skill in discovered_skills.values():
+            missing_required_skills = [
+                required_skill_id
+                for required_skill_id in skill.metadata.required_skills
+                if required_skill_id not in discovered_skills
+            ]
+            if missing_required_skills:
+                skill.metadata.missing_required_skills = missing_required_skills
+                logfire.warning(
+                    f"Skill '{skill.id}' references missing required skills: "
+                    f"{', '.join(missing_required_skills)}"
+                )
+
         self.skills = discovered_skills
 
     def _format_tool_list(self, tools: list[str]) -> str:
@@ -133,17 +147,30 @@ class SkillRegistry:
     def _format_value_list(self, values: list[str]) -> str:
         return ", ".join(values) if values else "none"
 
+    def _render_missing_required_skills_line(self, skill: Skill) -> str | None:
+        missing = skill.metadata.missing_required_skills
+        if not missing:
+            return None
+        return f"Missing required skills: {self._format_value_list(missing)}"
+
     def _render_skill_detail_block(self, skill: Skill) -> str:
-        return "\n".join(
+        lines = [
+            f"## Skill: {skill.metadata.name} (`{skill.id}`)",
+            f"Allowed tools: {self._format_tool_list(skill.metadata.tools)}",
+            f"Required skills: {self._format_value_list(skill.metadata.required_skills)}",
+            f"Required binaries: {self._format_value_list(skill.metadata.required_bins)}",
+            "Loading behavior: Required skills listed here are not loaded automatically. Call `load_skill_details` for them separately if needed.",
+        ]
+        missing_line = self._render_missing_required_skills_line(skill)
+        if missing_line:
+            lines.append(missing_line)
+        lines.extend(
             [
-                f"## Skill: {skill.metadata.name} (`{skill.id}`)",
-                f"Allowed tools: {self._format_tool_list(skill.metadata.tools)}",
-                f"Required skills: {self._format_value_list(skill.metadata.required_skills)}",
-                f"Required binaries: {self._format_value_list(skill.metadata.required_bins)}",
                 "",
                 skill.instructions.strip(),
             ]
         )
+        return "\n".join(lines)
 
     def get_skill_list_prompt(self) -> str:
         """Return a markdown table describing the available skills."""
@@ -174,6 +201,7 @@ class SkillRegistry:
             "You can discover and apply the following skills when they match the user's request.",
             "Do not treat skills as separate agents; they are reusable instructions available to you.",
             "This catalog only includes routing headers. Call `load_skill_details` before executing a non-trivial skill workflow.",
+            "Required skills are hints only. They are not loaded automatically; load them explicitly when the workflow needs them.",
             "",
             self.get_skill_list_prompt(),
         ]
@@ -189,11 +217,14 @@ class SkillRegistry:
                     f"Required binaries: {self._format_value_list(skill.metadata.required_bins)}",
                 ]
             )
+            missing_line = self._render_missing_required_skills_line(skill)
+            if missing_line:
+                lines.append(missing_line)
 
         return "\n".join(lines)
 
-    def load_skill_bundle(self, skill_id: str) -> str:
-        """Return the full instructions for a skill and its prerequisites."""
+    def load_skill_details(self, skill_id: str) -> str:
+        """Return the full instructions for a single requested skill."""
 
         if skill_id not in self.skills:
             available = sorted(self.skills)
@@ -201,30 +232,4 @@ class SkillRegistry:
             suggestion_text = f" Close matches: {', '.join(suggestions)}." if suggestions else ""
             raise KeyError(f"Unknown skill '{skill_id}'. Available skills: {', '.join(available)}.{suggestion_text}")
 
-        ordered_skills: list[Skill] = []
-        visiting: list[str] = []
-        seen: set[str] = set()
-
-        def visit(current_skill_id: str) -> None:
-            if current_skill_id in seen:
-                return
-            if current_skill_id in visiting:
-                cycle_start = visiting.index(current_skill_id)
-                cycle = visiting[cycle_start:] + [current_skill_id]
-                raise ValueError(f"Cycle detected in skill prerequisites: {' -> '.join(cycle)}")
-            if current_skill_id not in self.skills:
-                raise KeyError(
-                    f"Skill '{skill_id}' requires missing skill '{current_skill_id}'."
-                )
-
-            visiting.append(current_skill_id)
-            skill = self.skills[current_skill_id]
-            for required_skill_id in skill.metadata.required_skills:
-                visit(required_skill_id)
-            visiting.pop()
-            seen.add(current_skill_id)
-            ordered_skills.append(skill)
-
-        visit(skill_id)
-
-        return "\n\n".join(self._render_skill_detail_block(skill) for skill in ordered_skills)
+        return self._render_skill_detail_block(self.skills[skill_id])

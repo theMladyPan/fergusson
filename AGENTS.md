@@ -10,7 +10,7 @@ Fergusson is a modular AI assistant with an event-driven architecture:
 - **memory** is one shared SQLite thread across CLI, Discord, and Cron, while outbound delivery remains channel-specific.
 
 ## 2) Architecture by Directory
-- `src/agent/` — agent core, orchestration, shared-thread memory, skill loading, archiver.
+- `src/agent/` — agent core, orchestration, shared-thread memory, skill loading, archiver. Skill loading now returns one requested skill at a time; prerequisites are metadata hints that the agent must load explicitly.
 - `src/broker/` — message bus and message schemas between channels and runtime.
 - `src/channels/` — integration inputs/outputs (e.g., Discord, CLI adapters) that keep transport-specific `chat_id`s for delivery.
 - `src/config.py` — environment-backed runtime settings; model selection uses `SMART_MODEL` / `FAST_MODEL` as PydanticAI `provider:model` strings, while `workspace/config/config.json` remains for non-model app config.
@@ -45,11 +45,14 @@ Before handing off the implementation, check:
 - Do not do a broad documentation refactor unless needed; edit only affected sections.
 - For larger changes, add a short “Migration note” (if behavior changes).
 - If you add a new subsystem, include it in the “Architecture by Directory” section.
+- Skills that wrap external CLIs must keep example commands aligned with the current CLI shape, include a `--help`/schema fallback for validation errors, and only reference prerequisite skill IDs that actually exist under `workspace/skills/`.
 
 ## Migration Note
 - Short-term memory is no longer partitioned by per-channel `chat_id`. New work should use the shared history thread configured in `src/config.py`.
 - Original channel and delivery `chat_id` still matter for outbound routing and should be preserved in message metadata when persisting history.
 - Model selection no longer comes from `workspace/config/config.json`. New work should use env variables `SMART_MODEL` and `FAST_MODEL` with native PydanticAI `provider:model` strings.
+- Skill registries no longer auto-bundle prerequisite skill bodies. If a skill lists `required_skills`, the agent must call `load_skill_details` separately for each prerequisite it needs.
+- Runtime loop protection now uses a request-count cap (`request_limit`) on the main conversational agent instead of tool-call or token caps by default.
 
 
 ## ExecPlans
