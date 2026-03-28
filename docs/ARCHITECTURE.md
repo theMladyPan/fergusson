@@ -10,6 +10,7 @@ The Core Agent (`src/agent/core.py`) is the primary interface for all incoming u
 *   **Guardrails:** Given its access to bash execution (`src/tools/bash.py`), it is configured to intercept hazardous commands (like `rm`, `sudo`) and explicitly request user permission before execution.
 *   **Memory Integration:** It maintains a persistent context of the conversation using SQLite (`state.db`). It retrieves history from one shared thread across CLI, Discord, and Cron, while preserving transport-specific routing metadata for outbound replies.
 *   **Model Configuration:** The agent now loads `SMART_MODEL` and `FAST_MODEL` directly from environment variables as native PydanticAI `provider:model` strings. Fergusson keeps a thin wrapper only for OpenAI and Google direct-provider strings so existing retry and Logfire instrumentation behavior is preserved.
+*   **Loop Protection:** The main conversational run is capped by request count using PydanticAI `UsageLimits(request_limit=10)` by default. This favors fast parallel tool use while stopping excessive guess-and-retry model loops.
 
 ## 2. Shared Skills
 To keep behavior consistent with Codex-style skills, Fergusson loads skills into the agent prompt instead of creating one sub-agent per skill.

@@ -52,6 +52,7 @@ Before handing off the implementation, check:
 - Original channel and delivery `chat_id` still matter for outbound routing and should be preserved in message metadata when persisting history.
 - Model selection no longer comes from `workspace/config/config.json`. New work should use env variables `SMART_MODEL` and `FAST_MODEL` with native PydanticAI `provider:model` strings.
 - Skill registries no longer auto-bundle prerequisite skill bodies. If a skill lists `required_skills`, the agent must call `load_skill_details` separately for each prerequisite it needs.
+- Runtime loop protection now uses a request-count cap (`request_limit`) on the main conversational agent instead of tool-call or token caps by default.
 
 
 ## ExecPlans

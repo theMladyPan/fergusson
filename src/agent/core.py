@@ -120,7 +120,7 @@ class AgentManager:
             current_date=datetime.now().strftime("%B %d, %Y"),
             personality_md_content=personality_md_content,
             memory_md_content=memory_md_content,
-            tool_usage_limit=settings.agent.tool_call_limit,
+            request_limit=settings.agent.request_limit,
         )
         skills_prompt = self.registry.get_skill_catalog_prompt()
         if skills_prompt:
@@ -153,16 +153,16 @@ class AgentManager:
             tools=[duckduckgo_search_tool()],
         )
 
-        self.tool_limit_recovery_agent = Agent(
+        self.request_limit_recovery_agent = Agent(
             model=self.model,
-            name="ToolLimitRecoveryAgent",
+            name="RequestLimitRecoveryAgent",
             deps_type=AgentDeps,
             instructions=(
                 f"{system_prompt}\n\n"
-                "# Tool Limit Recovery\n"
-                "You are handling a turn where the runtime tool-call limit was reached. "
+                "# Request Limit Recovery\n"
+                "You are handling a turn where the runtime request limit was reached. "
                 "You have no tools in this recovery mode. Respond directly to the user from the existing conversation context only. "
-                "Explain briefly that you hit the tool-call limit for this turn, avoid internal exception names, and ask for a narrower follow-up if needed."
+                "Explain briefly that this turn took too many attempts, avoid internal exception names, and ask for a narrower follow-up if needed."
             ),
             tool_timeout=settings.agent.tool_timeout,
             retries=settings.agent.retries,
@@ -176,7 +176,7 @@ class AgentManager:
                 f"All channels share the same short-term history thread: '{ctx.deps.history_thread_id}'."
             )
 
-        @self.tool_limit_recovery_agent.system_prompt
+        @self.request_limit_recovery_agent.system_prompt
         def dynamic_recovery_context_prompt(ctx: RunContext[AgentDeps]) -> str:
             return (
                 "\n\nCURRENT CONTEXT:\n"
@@ -249,20 +249,18 @@ class AgentManager:
                 deps=deps,
                 message_history=history,
                 usage_limits=UsageLimits(
-                    request_limit=None,
-                    tool_calls_limit=settings.agent.tool_call_limit,
+                    request_limit=settings.agent.request_limit,
                 ),
             )
         except UsageLimitExceeded as exc:
             logfire.warning(f"Agent usage limit exceeded: {exc}")
             recovery_prompt = (
                 f"{user_input}\n\n"
-                "[System notice: The previous attempt hit the runtime tool-call limit for this turn. "
+                "[System notice: The previous attempt hit the runtime request limit for this turn. "
                 "Respond without calling tools, based only on available context.]"
             )
-            return await self.tool_limit_recovery_agent.run(
+            return await self.request_limit_recovery_agent.run(
                 recovery_prompt,
                 deps=deps,
                 message_history=history,
-                usage_limits=UsageLimits(request_limit=None, tool_calls_limit=0),
             )

@@ -407,8 +407,8 @@ async def test_agent_manager_run_passes_usage_limits(monkeypatch):
     await AgentManager.run(manager, "hello", history=[], chat_id="cli_chat", channel="cli")
 
     usage_limits = captured["kwargs"]["usage_limits"]
-    assert usage_limits.request_limit is None
-    assert usage_limits.tool_calls_limit == 4
+    assert usage_limits.request_limit == 10
+    assert usage_limits.tool_calls_limit is None
     assert captured["kwargs"]["message_history"] == []
     assert captured["kwargs"]["deps"].chat_id == "cli_chat"
 
@@ -430,16 +430,14 @@ async def test_agent_manager_run_uses_recovery_agent_after_usage_limit():
 
     manager = AgentManager.__new__(AgentManager)
     manager.core_agent = SimpleNamespace(run=core_run)
-    manager.tool_limit_recovery_agent = SimpleNamespace(run=recovery_run)
+    manager.request_limit_recovery_agent = SimpleNamespace(run=recovery_run)
 
     result = await AgentManager.run(manager, "hello", history=[], chat_id="cli_chat", channel="cli")
 
     assert result.output == "Recovered response"
     assert call_order == ["core", "recovery"]
-    assert "runtime tool-call limit" in captured["user_input"]
-    recovery_limits = captured["kwargs"]["usage_limits"]
-    assert recovery_limits.request_limit is None
-    assert recovery_limits.tool_calls_limit == 0
+    assert "runtime request limit" in captured["user_input"]
+    assert "usage_limits" not in captured["kwargs"]
 
 
 def test_common_gws_operations_skill_encodes_gws_cli_fallbacks():
