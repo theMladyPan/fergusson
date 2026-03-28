@@ -48,3 +48,7 @@ Before handing off the implementation, check:
 ## Migration Note
 - Short-term memory is no longer partitioned by per-channel `chat_id`. New work should use the shared history thread configured in `src/config.py`.
 - Original channel and delivery `chat_id` still matter for outbound routing and should be preserved in message metadata when persisting history.
+
+
+## ExecPlans
+When writing complex features or significant refactors, use an ExecPlan (as described in .agent/PLANS.md) from design to implementation.
