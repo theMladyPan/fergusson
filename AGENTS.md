@@ -1,46 +1,46 @@
 # AGENTS.md — Repository Operating Guide
 
-Tento dokument je záväzný pre celý repozitár (`/workspace/fergusson`).
+This document is binding for the entire repository (`/workspace/fergusson`).
 
-## 1) Cieľ projektu (stručne)
-Fergusson je modulárny AI asistent s event-driven architektúrou:
-- **kanály** (CLI, Discord, budúce vstupy) prijímajú správy,
-- **broker** (Redis) ich distribuuje,
-- **core agent** rozhoduje medzi priamym vybavením a delegovaním na skill,
-- **pamäť** je per-chat v SQLite.
+## 1) Project Goal (brief)
+Fergusson is a modular AI assistant with an event-driven architecture:
+- **channels** (CLI, Discord, future inputs) receive messages,
+- the **broker** (Redis) distributes them,
+- the **core agent** decides between direct handling and delegating to a skill,
+- **memory** is per-chat in SQLite.
 
-## 2) Architektúra podľa adresárov
-- `src/agent/` — jadro agenta, orchestrácia, pamäť, načítanie skillov, archiver.
-- `src/broker/` — message bus a schémy správ medzi kanálmi a runtime.
-- `src/channels/` — integračné vstupy/výstupy (napr. Discord, CLI adaptery).
-- `src/tools/` — nástroje volané agentom (bash, filesystem, web).
-- `src/db/` — DB modely a session vrstva pre perzistenciu stavu.
-- `src/prompt/` — Jinja šablóny systémových promptov.
-- `workspace/skills/` — dynamické skills podľa `SKILL.md` štandardu.
-- `docs/` — dlhšia technická dokumentácia architektúry a rozhodnutí.
-- `tests/` — automatizované testy.
+## 2) Architecture by Directory
+- `src/agent/` — agent core, orchestration, memory, skill loading, archiver.
+- `src/broker/` — message bus and message schemas between channels and runtime.
+- `src/channels/` — integration inputs/outputs (e.g., Discord, CLI adapters).
+- `src/tools/` — tools invoked by the agent (bash, filesystem, web).
+- `src/db/` — DB models and session layer for state persistence.
+- `src/prompt/` — Jinja templates for system prompts.
+- `workspace/skills/` — dynamic skills following the `SKILL.md` standard.
+- `docs/` — longer technical documentation of architecture and decisions.
+- `tests/` — automated tests.
 
-## 3) Pravidlá pre implementáciu zmien
-Pri každej netriviálnej zmene **musí agent aktualizovať relevantnú časť tohto súboru (`AGENTS.md`)**.
+## 3) Rules for Implementing Changes
+For every non-trivial change, the agent **must update the relevant part of this file (`AGENTS.md`)**.
 
-Za „relevantnú časť“ sa považuje najmä:
-1. zmena zodpovedností modulov,
-2. pridanie/odstránenie adresára alebo významného komponentu,
-3. zmena toku správ medzi kanálmi, brokerom a agentom,
-4. zmena spôsobu perzistencie pamäte,
-5. zmena kontraktov nástrojov alebo registrácie skillov,
-6. nové prevádzkové pravidlá, ktoré majú poznať ďalší agenti.
+“Relevant part” primarily means:
+1. changes to module responsibilities,
+2. adding/removing a directory or significant component,
+3. changing the message flow between channels, broker, and agent,
+4. changing how memory persistence works,
+5. changing tool contracts or skill registration,
+6. new operational rules that other agents need to know.
 
-Ak sa mení architektúra detailnejšie, synchronizuj aj `docs/ARCHITECTURE.md`.
+If the architecture changes in more detail, also synchronize `docs/ARCHITECTURE.md`.
 
-## 4) Definition of Done pre dokumentáciu
-Pred odovzdaním implementácie skontroluj:
-- je popísané **čo** sa zmenilo,
-- je popísané **kde** sa zmena nachádza (priečinok/modul),
-- je popísané **ako** sa zmenil tok dát alebo zodpovednosti,
-- AGENTS.md ostáva stručný, ale aktuálny.
+## 4) Definition of Done for Documentation
+Before handing off the implementation, check:
+- **what** changed is described,
+- **where** the change is located (directory/module) is described,
+- **how** data flow or responsibilities changed is described,
+- AGENTS.md remains concise but up to date.
 
-## 5) Praktické zásady
-- Nerob broad refactor dokumentácie bez potreby; uprav iba dotknuté sekcie.
-- Pri väčšej zmene doplň krátku poznámku „Migration note“ (ak sa mení správanie).
-- Ak pridávaš nový subsystém, pridaj ho do sekcie „Architektúra podľa adresárov“.
+## 5) Practical Guidelines
+- Do not do a broad documentation refactor unless needed; edit only affected sections.
+- For larger changes, add a short “Migration note” (if behavior changes).
+- If you add a new subsystem, include it in the “Architecture by Directory” section.
