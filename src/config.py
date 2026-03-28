@@ -123,6 +123,22 @@ class Settings(BaseSettings):
         "google-gla:gemini-3.1-flash-lite-preview",
         description="Fast/utility agent model in native PydanticAI provider:model format",
     )
+    memory_embedding_provider: str = Field(
+        "google-gla",
+        description="Embedding provider for graph memory (e.g. google-gla, google-vertex)",
+    )
+    memory_embedding_model: str = Field(
+        "gemini-embedding-001",
+        description="Embedding model name for graph memory",
+    )
+    memory_embedding_dimensions: int = Field(
+        1536,
+        description="Embedding vector dimensions used by graph-memory indexes",
+    )
+    memory_fact_dedup_threshold: float = Field(
+        0.85,
+        description="Similarity threshold for semantic fact deduplication",
+    )
     shared_history_thread_id: str = Field(
         "main",
         description="Single shared short-term history thread used across all channels",

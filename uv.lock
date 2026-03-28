@@ -669,6 +669,7 @@ dependencies = [
     { name = "logfire", extra = ["google-genai"] },
     { name = "markitdown" },
     { name = "neo4j" },
+    { name = "neo4j-agent-memory" },
     { name = "openai" },
     { name = "prompt-toolkit" },
     { name = "pydantic" },
@@ -697,6 +698,7 @@ requires-dist = [
     { name = "logfire", extras = ["google-genai"], specifier = ">=4.25.0" },
     { name = "markitdown", specifier = ">=0.1.5" },
     { name = "neo4j", specifier = ">=6.0.2" },
+    { name = "neo4j-agent-memory", specifier = ">=0.0.5" },
     { name = "openai", specifier = ">=2.24.0" },
     { name = "prompt-toolkit", specifier = ">=3.0.52" },
     { name = "pydantic", specifier = ">=2.12.5" },
@@ -1601,6 +1603,20 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/1b/01/d6ce65e4647f6cb2b9cca3b813978f7329b54b4e36660aaec1ddf0ccce7a/neo4j-6.1.0.tar.gz", hash = "sha256:b5dde8c0d8481e7b6ae3733569d990dd3e5befdc5d452f531ad1884ed3500b84", size = 239629, upload-time = "2026-01-12T11:27:34.777Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/70/5c/ee71e2dd955045425ef44283f40ba1da67673cf06404916ca2950ac0cd39/neo4j-6.1.0-py3-none-any.whl", hash = "sha256:3bd93941f3a3559af197031157220af9fd71f4f93a311db687bd69ffa417b67d", size = 325326, upload-time = "2026-01-12T11:27:33.196Z" },
+]
+
+[[package]]
+name = "neo4j-agent-memory"
+version = "0.0.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "neo4j" },
+    { name = "pydantic" },
+    { name = "pydantic-settings" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/61/2c/32569ab2889fe63878bb91d10a8669df0852998bf00bf7921c8dc35833d6/neo4j_agent_memory-0.0.5.tar.gz", hash = "sha256:6825876134e2483d8373642f378a9ec091f9c7a8d7ea5fa8493fff3c53de19a4", size = 229640, upload-time = "2026-03-09T12:03:24.064Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/02/df/bd41c607bebce844ad884bbf1f1d2bff093f974d5a589e407c4058128953/neo4j_agent_memory-0.0.5-py3-none-any.whl", hash = "sha256:586476aae68a3d3948a9a715021d0ed4326ab7ffefe7e9830a1de294b7753e8f", size = 271482, upload-time = "2026-03-09T12:03:22.67Z" },
 ]
 
 [[package]]

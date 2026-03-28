@@ -12,6 +12,7 @@ dependencies = [
     "logfire[google-genai]>=4.25.0",
     "markitdown>=0.1.5",
     "neo4j>=6.0.2",
+    "neo4j-agent-memory>=0.0.5",
     "openai>=2.24.0",
     "prompt-toolkit>=3.0.52",
     "pydantic>=2.12.5",

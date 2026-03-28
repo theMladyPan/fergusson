@@ -56,18 +56,16 @@ Fergusson operates across multiple channels (CLI, Discord, Cron) via a centraliz
 Neo4j adds an optional structured long-term memory layer on top of the shared SQLite thread and `MEMORY.md`.
 
 **Data model:**
-*   `(:MemoryEntity)` stores durable subjects/objects such as the user, organizations, and named entities.
-*   `(:MemoryAssertion)` stores durable facts with provenance, confidence, active/superseded status, and a deterministic `fact_key` used for deduplication.
-*   `(:MemoryEntity)-[:ASSERTS]->(:MemoryAssertion)` links subjects to facts and remains the provenance-bearing source of truth.
-*   `(:MemoryAssertion)-[:OBJECT]->(:MemoryEntity)` is used when the fact points to another entity instead of a scalar value.
+*   Relational memory is backed by `neo4j-agent-memory` long-term nodes (`Fact`, `Preference`, `Entity`).
+*   This repository stores durable facts/preferences via library APIs and uses graph metadata for provenance (`source_kind`, `source_channel`, `source_ref`, optional note).
 
 **Behavior:**
-*   The capability performs a lightweight memory lookup before model requests and injects a concise `# Relational Memory Context` block only when relevant matches exist.
-*   The model can explicitly call `search_relational_memory(...)` and `upsert_relational_memory(...)`.
-*   Before writing, the agent is instructed to search first and skip facts that already exist. The store enforces idempotency with `fact_key`, so exact duplicate writes become no-op touches instead of new assertions.
-*   After a successful turn, a separate extractor agent running on the fast model may persist durable inferred facts. Extraction behavior is guided by a Jinja prompt template under `src/prompt/` with explicit do/don't examples rather than a hardcoded predicate allowlist.
-*   The extractor can call a similarity tool to inspect nearby active facts before deciding whether a candidate should be omitted, added, or written with `replace_existing=true`.
-*   When `replace_existing=true`, conflicting active assertions for the same subject+predicate are superseded; otherwise additive facts can coexist as separate active assertions.
+*   The capability performs a lightweight memory lookup before model requests and injects a concise `# Graph Memory Context` block only when relevant matches exist.
+*   The model can explicitly call `search_memory(...)`, `get_memory_context(...)`, `store_fact(...)`, and `store_preference(...)`.
+*   Duplicate suppression happens before writes with exact normalized triple checks plus semantic similarity checks (embedding threshold).
+*   On corrections (`store_fact(..., correction=true)`), existing open-ended conflicting facts for the same subject+predicate are temporally closed (`valid_until=now`) before writing the new fact.
+*   After a successful turn, a separate extractor agent running on the fast model may persist durable inferred facts/preferences. Extraction behavior is guided by a Jinja prompt template under `src/prompt/` with explicit do/don't examples.
+*   The extractor calls a similarity tool (`find_similar_memory`) before emitting each candidate memory.
 *   Cron-originated turns can create relational memories when the source content is durable.
 
 **Operational notes:**

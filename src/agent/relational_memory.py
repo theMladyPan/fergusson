@@ -1,62 +1,63 @@
 import asyncio
-import uuid
+import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
+from typing import Any
 
 import logfire
 from jinja2 import Template
-from neo4j import AsyncDriver, AsyncGraphDatabase
 from pydantic import BaseModel, Field
+from pydantic import SecretStr
 from pydantic_ai import Agent
 from pydantic_ai.capabilities import AbstractCapability
+from pydantic_ai.embeddings import Embedder
 from pydantic_ai.messages import ModelRequest, SystemPromptPart, UserPromptPart
 from pydantic_ai.models import ModelRequestContext
 from pydantic_ai.run import AgentRunResult
 from pydantic_ai.tools import RunContext
 from pydantic_ai.toolsets import FunctionToolset
 
-from src.config import Neo4jConfig
+from src.config import Neo4jConfig, settings
 
-
-def _now_iso() -> str:
-    return datetime.now(UTC).isoformat()
+try:
+    from neo4j_agent_memory import (
+        EmbeddingConfig,
+        EmbeddingProvider,
+        ExtractionConfig,
+        ExtractorType,
+        MemoryClient,
+        MemoryConfig,
+        MemorySettings,
+        Neo4jConfig as NAMNeo4jConfig,
+    )
+except Exception as _agent_memory_import_exc:  # pragma: no cover - import guard
+    MemoryClient = None  # type: ignore[assignment]
+    _AGENT_MEMORY_IMPORT_ERROR = str(_agent_memory_import_exc)
+else:
+    _AGENT_MEMORY_IMPORT_ERROR = None
 
 
 def _normalize_text(value: str) -> str:
     return " ".join(value.strip().casefold().split())
 
 
-def _normalize_subject(subject: str, subject_type: str) -> tuple[str, str]:
+def _normalize_subject(subject: str) -> str:
     normalized = _normalize_text(subject)
     if normalized in {"i", "me", "my", "mine", "myself", "user"}:
-        return "user", "person"
-    normalized_type = _normalize_text(subject_type) or "unknown"
-    return normalized, normalized_type
+        return "user"
+    return normalized
 
 
-def _entity_payload(name: str, entity_type: str) -> dict[str, str | list[str]]:
-    normalized_name, normalized_type = _normalize_subject(name, entity_type)
-    return {
-        "canonical_name": normalized_name,
-        "entity_type": normalized_type,
-        "memory_key": f"{normalized_type}:{normalized_name}",
-        "aliases": [normalized_name],
-    }
+def _normalize_predicate(predicate: str) -> str:
+    normalized = _normalize_text(predicate).replace(" ", "_")
+    normalized = re.sub(r"[^a-z0-9_]+", "_", normalized)
+    normalized = re.sub(r"_+", "_", normalized).strip("_")
+    return normalized
 
 
-def _query_tokens(query: str) -> list[str]:
-    tokens = []
-    seen = set()
-    for token in _normalize_text(query).split():
-        if len(token) < 3 or token in seen:
-            continue
-        seen.add(token)
-        tokens.append(token)
-        if len(tokens) >= 8:
-            break
-    return tokens
+def _now_iso() -> str:
+    return datetime.now(UTC).isoformat()
 
 
 def _extract_latest_user_text(messages: list) -> str:
@@ -69,13 +70,6 @@ def _extract_latest_user_text(messages: list) -> str:
     return ""
 
 
-def _build_fact_key(subject_key: str, predicate: str, object_type: Literal["value", "entity"], normalized_object: str) -> str:
-    return f"{subject_key}|{predicate}|{object_type}|{normalized_object}"
-
-
-REMEMBER_QUERY_TOKENS = {"remember", "told", "tell", "prefer", "preference", "favorite", "favourite"}
-
-
 def _extractor_instructions() -> str:
     template_path = Path(__file__).parents[1] / "prompt" / "relational_memory_extractor.md"
     with open(template_path, "r", encoding="utf-8") as f:
@@ -83,30 +77,55 @@ def _extractor_instructions() -> str:
     return template.render(current_date=datetime.now().strftime("%B %d, %Y"))
 
 
-class RelationalMemoryItem(BaseModel):
+class PydanticAIEmbedderAdapter:
+    """Bridge PydanticAI Embedder to neo4j-agent-memory embedder protocol."""
+
+    def __init__(self, embedder: Embedder, dimensions: int):
+        self._embedder = embedder
+        self._dimensions = dimensions
+
+    @property
+    def dimensions(self) -> int:
+        return self._dimensions
+
+    async def embed(self, text: str) -> list[float]:
+        result = await self._embedder.embed_query(text)
+        return result.embeddings[0]
+
+    async def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        result = await self._embedder.embed_documents(texts)
+        return result.embeddings
+
+
+class RelationalMemoryFactItem(BaseModel):
     subject: str
     predicate: str
     object_value: str
-    subject_type: str = "unknown"
-    object_type: Literal["value", "entity"] = "value"
-    object_entity_type: str = "unknown"
-    confidence: Literal["low", "medium", "high"] = "medium"
-    replace_existing: bool = False
+    confidence: float = Field(default=0.9, ge=0.0, le=1.0)
+    correction: bool = False
+    source_note: str | None = None
+
+
+class RelationalMemoryPreferenceItem(BaseModel):
+    category: str
+    preference: str
+    context: str | None = None
+    confidence: float = Field(default=0.9, ge=0.0, le=1.0)
     source_note: str | None = None
 
 
 class RelationalMemoryBatch(BaseModel):
-    memories: list[RelationalMemoryItem] = Field(default_factory=list)
+    facts: list[RelationalMemoryFactItem] = Field(default_factory=list)
+    preferences: list[RelationalMemoryPreferenceItem] = Field(default_factory=list)
 
 
 class RelationalMemoryStore:
     def __init__(self, config: Neo4jConfig):
         self.config = config
-        self._driver: AsyncDriver | None = None
+        self._memory_client: Any | None = None
         self._available = False
         self._verified = False
         self._lock = asyncio.Lock()
-        self._schema_lock = asyncio.Lock()
 
     async def ensure_available(self) -> bool:
         if self._verified:
@@ -121,472 +140,278 @@ class RelationalMemoryStore:
                 self._verified = True
                 return False
 
+            if MemoryClient is None:
+                self._available = False
+                self._verified = True
+                logfire.warning("Neo4j relational memory disabled: neo4j-agent-memory not installed", error=_AGENT_MEMORY_IMPORT_ERROR)
+                return False
+
             try:
-                self._driver = AsyncGraphDatabase.driver(
-                    self.config.uri,
-                    auth=(self.config.user, self.config.password),
-                )
-                await self._driver.verify_connectivity()
-                await self._ensure_schema()
+                self._memory_client = self._build_memory_client()
+                await self._memory_client.connect()
                 self._available = True
-                logfire.info("Neo4j relational memory enabled", database=self.config.database)
+                logfire.info("Neo4j relational memory enabled via neo4j-agent-memory", database=self.config.database)
             except Exception as exc:
                 self._available = False
-                logfire.warning(f"Neo4j relational memory disabled: {exc}")
-                if self._driver is not None:
-                    await self._driver.close()
-                    self._driver = None
+                logfire.warning("Neo4j relational memory disabled", error=str(exc))
+                if self._memory_client is not None:
+                    await self._memory_client.close()
+                    self._memory_client = None
             finally:
                 self._verified = True
 
         return self._available
 
-    async def _ensure_schema(self) -> None:
-        if self._driver is None:
-            return
+    def _build_memory_client(self) -> Any:
+        assert self.config.uri is not None
+        assert self.config.user is not None
+        assert self.config.password is not None
 
-        async with self._schema_lock:
-            database_kwargs = self._database_kwargs()
-            await self._driver.execute_query(
-                """
-                CREATE CONSTRAINT memory_entity_key IF NOT EXISTS
-                FOR (e:MemoryEntity) REQUIRE e.memory_key IS UNIQUE
-                """,
-                **database_kwargs,
-            )
-            await self._driver.execute_query(
-                """
-                CREATE CONSTRAINT memory_assertion_id IF NOT EXISTS
-                FOR (a:MemoryAssertion) REQUIRE a.assertion_id IS UNIQUE
-                """,
-                **database_kwargs,
-            )
-            await self._driver.execute_query(
-                """
-                CREATE CONSTRAINT memory_assertion_fact_key IF NOT EXISTS
-                FOR (a:MemoryAssertion) REQUIRE a.fact_key IS UNIQUE
-                """,
-                **database_kwargs,
-            )
+        embedder = Embedder(
+            f"{settings.memory_embedding_provider}:{settings.memory_embedding_model}",
+            settings={"dimensions": settings.memory_embedding_dimensions},
+        )
+        embedder_adapter = PydanticAIEmbedderAdapter(embedder, settings.memory_embedding_dimensions)
 
-    def _database_kwargs(self) -> dict[str, str]:
-        if self.config.database:
-            return {"database_": self.config.database}
-        return {}
+        memory_settings = MemorySettings(
+            neo4j=NAMNeo4jConfig(
+                uri=self.config.uri,
+                username=self.config.user,
+                password=SecretStr(self.config.password),
+                database=self.config.database or "neo4j",
+            ),
+            embedding=EmbeddingConfig(
+                provider=EmbeddingProvider.CUSTOM,
+                model=f"{settings.memory_embedding_provider}:{settings.memory_embedding_model}",
+                dimensions=settings.memory_embedding_dimensions,
+            ),
+            extraction=ExtractionConfig(extractor_type=ExtractorType.NONE),
+            memory=MemoryConfig(fact_deduplication_enabled=True),
+        )
+        return MemoryClient(memory_settings, embedder=embedder_adapter)
 
     async def close(self) -> None:
-        if self._driver is not None:
-            await self._driver.close()
-            self._driver = None
+        if self._memory_client is not None:
+            await self._memory_client.close()
+            self._memory_client = None
         self._available = False
         self._verified = False
 
-    async def _merge_entity(self, *, payload: dict[str, str | list[str]], timestamp: str) -> None:
-        if self._driver is None:
-            return
+    async def _exact_fact_exists(self, *, subject: str, predicate: str, object_value: str) -> bool:
+        assert self._memory_client is not None
+        facts = await self._memory_client.long_term.get_facts_about(subject, limit=200)
+        target = (subject, predicate, _normalize_text(object_value))
+        for fact in facts:
+            if (
+                _normalize_subject(fact.subject),
+                _normalize_predicate(fact.predicate),
+                _normalize_text(fact.object),
+            ) == target:
+                return True
+        return False
 
-        await self._driver.execute_query(
-            """
-            MERGE (entity:MemoryEntity {memory_key: $memory_key})
-            ON CREATE SET
-              entity.entity_id = randomUUID(),
-              entity.created_at = $timestamp
-            SET
-              entity.canonical_name = $canonical_name,
-              entity.entity_type = $entity_type,
-              entity.updated_at = $timestamp,
-              entity.aliases = reduce(acc = [], item IN coalesce(entity.aliases, []) + $aliases |
-                CASE WHEN item IN acc THEN acc ELSE acc + item END)
-            """,
-            memory_key=payload["memory_key"],
-            canonical_name=payload["canonical_name"],
-            entity_type=payload["entity_type"],
-            aliases=payload["aliases"],
-            timestamp=timestamp,
-            **self._database_kwargs(),
-        )
-
-    async def _get_exact_assertion(self, *, subject_key: str, fact_key: str) -> dict | None:
-        if self._driver is None:
-            return None
-
-        records, _, _ = await self._driver.execute_query(
-            """
-            MATCH (:MemoryEntity {memory_key: $subject_key})-[:ASSERTS]->(assertion:MemoryAssertion {fact_key: $fact_key})
-            RETURN assertion.assertion_id AS assertion_id, assertion.status AS status
-            LIMIT 1
-            """,
-            subject_key=subject_key,
-            fact_key=fact_key,
-            **self._database_kwargs(),
-        )
-        return records[0] if records else None
-
-    async def _supersede_conflicting_active_assertions(
-        self,
-        *,
-        subject_key: str,
-        predicate: str,
-        fact_key: str,
-        timestamp: str,
-    ) -> int:
-        if self._driver is None:
-            return 0
-
-        records, _, _ = await self._driver.execute_query(
-            """
-            MATCH (:MemoryEntity {memory_key: $subject_key})-[:ASSERTS]->(existing:MemoryAssertion {predicate: $predicate, status: 'active'})
-            WHERE existing.fact_key <> $fact_key
-            SET
-              existing.status = 'superseded',
-              existing.superseded_at = $timestamp,
-              existing.last_seen_at = $timestamp
-            RETURN count(existing) AS superseded_count
-            """,
-            subject_key=subject_key,
-            predicate=predicate,
-            fact_key=fact_key,
-            timestamp=timestamp,
-            **self._database_kwargs(),
-        )
-        if not records:
-            return 0
-        return int(records[0]["superseded_count"] or 0)
-
-    async def _merge_assertion(
-        self,
-        *,
-        subject_key: str,
-        predicate: str,
-        fact_key: str,
-        value_text: str,
-        object_type: Literal["value", "entity"],
-        confidence: str,
-        source_kind: str,
-        source_channel: str,
-        source_ref: str,
-        source_note: str | None,
-        timestamp: str,
-        object_key: str | None = None,
-    ) -> str:
-        if self._driver is None:
-            raise RuntimeError("Neo4j driver not available")
-
-        if object_type == "entity":
-            query = """
-            MATCH (subject:MemoryEntity {memory_key: $subject_key})
-            MATCH (object:MemoryEntity {memory_key: $object_key})
-            MERGE (assertion:MemoryAssertion {fact_key: $fact_key})
-            ON CREATE SET
-              assertion.assertion_id = $assertion_id,
-              assertion.first_seen_at = $timestamp
-            SET
-              assertion.predicate = $predicate,
-              assertion.value_text = $value_text,
-              assertion.display_text = $display_text,
-              assertion.object_type = $object_type,
-              assertion.status = 'active',
-              assertion.confidence = $confidence,
-              assertion.source_kind = $source_kind,
-              assertion.source_channel = $source_channel,
-              assertion.source_ref = $source_ref,
-              assertion.source_note = $source_note,
-              assertion.last_seen_at = $timestamp,
-              assertion.superseded_at = null
-            MERGE (subject)-[:ASSERTS]->(assertion)
-            MERGE (assertion)-[:OBJECT]->(object)
-            RETURN assertion.assertion_id AS assertion_id
-            """
-        else:
-            query = """
-            MATCH (subject:MemoryEntity {memory_key: $subject_key})
-            MERGE (assertion:MemoryAssertion {fact_key: $fact_key})
-            ON CREATE SET
-              assertion.assertion_id = $assertion_id,
-              assertion.first_seen_at = $timestamp
-            SET
-              assertion.predicate = $predicate,
-              assertion.value_text = $value_text,
-              assertion.display_text = $display_text,
-              assertion.object_type = $object_type,
-              assertion.status = 'active',
-              assertion.confidence = $confidence,
-              assertion.source_kind = $source_kind,
-              assertion.source_channel = $source_channel,
-              assertion.source_ref = $source_ref,
-              assertion.source_note = $source_note,
-              assertion.last_seen_at = $timestamp,
-              assertion.superseded_at = null
-            MERGE (subject)-[:ASSERTS]->(assertion)
-            RETURN assertion.assertion_id AS assertion_id
-            """
-
-        records, _, _ = await self._driver.execute_query(
+    async def _semantic_fact_exists(self, *, subject: str, predicate: str, object_value: str) -> bool:
+        assert self._memory_client is not None
+        query = f"{subject} {predicate} {object_value}"
+        candidates = await self._memory_client.long_term.search_facts(
             query,
-            subject_key=subject_key,
-            object_key=object_key,
-            predicate=predicate,
-            fact_key=fact_key,
-            value_text=value_text,
-            display_text=f"{predicate} -> {value_text}",
-            object_type=object_type,
-            assertion_id=str(uuid.uuid4()),
-            confidence=confidence,
-            source_kind=source_kind,
-            source_channel=source_channel,
-            source_ref=source_ref,
-            source_note=source_note,
-            timestamp=timestamp,
-            **self._database_kwargs(),
+            limit=8,
+            threshold=settings.memory_fact_dedup_threshold,
         )
-        return str(records[0]["assertion_id"])
+        for candidate in candidates:
+            if _normalize_subject(candidate.subject) != subject:
+                continue
+            if _normalize_predicate(candidate.predicate) != predicate:
+                continue
+            if _normalize_text(candidate.object) == _normalize_text(object_value):
+                return True
+            similarity = candidate.metadata.get("similarity")
+            if similarity is not None and float(similarity) >= settings.memory_fact_dedup_threshold:
+                return True
+        return False
 
-    async def upsert_memory(
+    async def _close_conflicting_facts(self, *, subject: str, predicate: str, object_value: str) -> int:
+        assert self._memory_client is not None
+        results = await self._memory_client.graph.execute_write(
+            """
+            MATCH (f:Fact)
+            WHERE toLower(f.subject) = $subject
+              AND toLower(f.predicate) = $predicate
+              AND f.valid_until IS NULL
+              AND toLower(f.object) <> $object_value
+            SET f.valid_until = datetime($valid_until)
+            RETURN count(f) AS closed_count
+            """,
+            {
+                "subject": subject,
+                "predicate": predicate,
+                "object_value": _normalize_text(object_value),
+                "valid_until": _now_iso(),
+            },
+        )
+        return int(results[0].get("closed_count", 0)) if results else 0
+
+    async def store_fact(
         self,
         *,
         subject: str,
         predicate: str,
         object_value: str,
-        subject_type: str = "unknown",
-        object_type: Literal["value", "entity"] = "value",
-        object_entity_type: str = "unknown",
-        confidence: str = "high",
-        replace_existing: bool = False,
+        confidence: float = 0.9,
+        correction: bool = False,
         source_kind: str = "user",
         source_channel: str = "unknown",
         source_ref: str = "",
         source_note: str | None = None,
     ) -> str:
-        if not await self.ensure_available() or self._driver is None:
+        if not await self.ensure_available() or self._memory_client is None:
             return "Relational memory is unavailable."
 
-        normalized_predicate = _normalize_text(predicate)
-        if not normalized_predicate:
-            return "Skipped relational memory: predicate is empty after normalization."
+        normalized_subject = _normalize_subject(subject)
+        normalized_predicate = _normalize_predicate(predicate)
+        object_text = object_value.strip()
+        if not normalized_subject or not normalized_predicate or not object_text:
+            return "Skipped memory fact: subject, predicate, and object_value are required."
 
-        normalized_object = _normalize_text(object_value)
-        if not normalized_object:
-            return "Skipped relational memory: object_value is empty after normalization."
-
-        subject_payload = _entity_payload(subject, subject_type)
-        object_payload: dict[str, str | list[str]] | None = None
-        if object_type == "entity":
-            object_payload = _entity_payload(object_value, object_entity_type)
-
-        fact_key = _build_fact_key(
-            str(subject_payload["memory_key"]),
-            normalized_predicate,
-            object_type,
-            normalized_object if object_type == "value" else str(object_payload["memory_key"]),
-        )
-        timestamp = _now_iso()
-
-        with logfire.span(
-            "neo4j_upsert_memory",
-            subject=subject_payload["canonical_name"],
-            subject_type=subject_payload["entity_type"],
+        if await self._exact_fact_exists(
+            subject=normalized_subject,
             predicate=normalized_predicate,
-            object_type=object_type,
-            replace_existing=replace_existing,
-            source_kind=source_kind,
-            source_channel=source_channel,
-            fact_key=fact_key,
+            object_value=object_text,
         ):
-            await self._merge_entity(payload=subject_payload, timestamp=timestamp)
-            if object_payload is not None:
-                await self._merge_entity(payload=object_payload, timestamp=timestamp)
-
-            exact = await self._get_exact_assertion(subject_key=str(subject_payload["memory_key"]), fact_key=fact_key)
-            superseded_count = 0
-            if replace_existing:
-                superseded_count = await self._supersede_conflicting_active_assertions(
-                    subject_key=str(subject_payload["memory_key"]),
-                    predicate=normalized_predicate,
-                    fact_key=fact_key,
-                    timestamp=timestamp,
-                )
-
-            await self._merge_assertion(
-                subject_key=str(subject_payload["memory_key"]),
-                predicate=normalized_predicate,
-                fact_key=fact_key,
-                value_text=object_value.strip(),
-                object_type=object_type,
-                confidence=confidence,
-                source_kind=source_kind,
-                source_channel=source_channel,
-                source_ref=source_ref,
-                source_note=source_note,
-                timestamp=timestamp,
-                object_key=str(object_payload["memory_key"]) if object_payload is not None else None,
-            )
-
-        action = "inserted"
-        if exact is not None and exact["status"] == "active":
-            action = "touched_existing"
-        elif exact is not None:
-            action = "reactivated"
-        if superseded_count:
-            action = "superseded_and_replaced"
-
-        logfire.info(
-            "Relational memory write decision",
-            action=action,
+            return "Skipped memory fact: exact duplicate."
+        if await self._semantic_fact_exists(
+            subject=normalized_subject,
             predicate=normalized_predicate,
-            subject_key=subject_payload["memory_key"],
-            fact_key=fact_key,
-        )
+            object_value=object_text,
+        ):
+            return "Skipped memory fact: semantic duplicate."
 
-        if action == "touched_existing":
-            return (
-                f"Relational memory already stored: {subject_payload['canonical_name']} -> "
-                f"{normalized_predicate} -> {object_value.strip()}"
+        closed_count = 0
+        if correction:
+            closed_count = await self._close_conflicting_facts(
+                subject=normalized_subject,
+                predicate=normalized_predicate,
+                object_value=object_text,
             )
-        if action == "reactivated":
-            return (
-                f"Reactivated relational memory: {subject_payload['canonical_name']} -> "
-                f"{normalized_predicate} -> {object_value.strip()}"
-            )
-        return (
-            f"Stored relational memory: {subject_payload['canonical_name']} -> {normalized_predicate} -> "
-            f"{object_value.strip()}"
-        )
 
-    async def find_similar_memories(
+        await self._memory_client.long_term.add_fact(
+            subject=normalized_subject,
+            predicate=normalized_predicate,
+            obj=object_text,
+            confidence=confidence,
+            valid_from=datetime.now(UTC),
+            metadata={
+                "source_kind": source_kind,
+                "source_channel": source_channel,
+                "source_ref": source_ref,
+                "source_note": source_note or "",
+                "correction": correction,
+            },
+        )
+        if correction and closed_count > 0:
+            return f"Stored corrected fact and closed {closed_count} conflicting fact(s)."
+        return "Stored fact."
+
+    async def store_preference(
         self,
         *,
-        subject: str,
-        predicate: str,
-        object_value: str,
-        subject_type: str = "unknown",
-        object_type: Literal["value", "entity"] = "value",
-        object_entity_type: str = "unknown",
-        limit: int = 6,
+        category: str,
+        preference: str,
+        context: str | None = None,
+        confidence: float = 0.9,
+        source_kind: str = "user",
+        source_channel: str = "unknown",
+        source_ref: str = "",
+        source_note: str | None = None,
     ) -> str:
-        if not await self.ensure_available() or self._driver is None:
+        if not await self.ensure_available() or self._memory_client is None:
             return "Relational memory is unavailable."
 
-        normalized_predicate = _normalize_text(predicate)
-        subject_payload = _entity_payload(subject, subject_type)
-        object_payload = (
-            _entity_payload(object_value, object_entity_type)
-            if object_type == "entity"
-            else None
-        )
-        normalized_object = _normalize_text(object_value)
-        target_fact_key = _build_fact_key(
-            str(subject_payload["memory_key"]),
-            normalized_predicate,
-            object_type,
-            normalized_object if object_type == "value" else str(object_payload["memory_key"]),
-        )
+        normalized_category = _normalize_predicate(category)
+        normalized_preference = _normalize_text(preference)
+        if not normalized_category or not normalized_preference:
+            return "Skipped preference: category and preference are required."
 
-        records, _, _ = await self._driver.execute_query(
-            """
-            MATCH (subject:MemoryEntity)-[:ASSERTS]->(assertion:MemoryAssertion {status: 'active'})
-            OPTIONAL MATCH (assertion)-[:OBJECT]->(object:MemoryEntity)
-            WHERE subject.memory_key = $subject_key
-              AND (
-                assertion.predicate = $predicate OR
-                assertion.fact_key = $target_fact_key OR
-                ($object_type = 'value' AND toLower(coalesce(assertion.value_text, '')) CONTAINS $object_norm) OR
-                ($object_type = 'entity' AND object.memory_key = $object_key)
-              )
-            RETURN
-              subject.canonical_name AS subject,
-              assertion.predicate AS predicate,
-              assertion.value_text AS value_text,
-              assertion.fact_key AS fact_key,
-              assertion.confidence AS confidence,
-              assertion.source_kind AS source_kind,
-              assertion.source_channel AS source_channel,
-              assertion.last_seen_at AS last_seen_at,
-              object.canonical_name AS object_name
-            ORDER BY assertion.last_seen_at DESC
-            LIMIT $limit
-            """,
-            subject_key=subject_payload["memory_key"],
-            predicate=normalized_predicate,
-            target_fact_key=target_fact_key,
-            object_type=object_type,
-            object_norm=normalized_object,
-            object_key=object_payload["memory_key"] if object_payload is not None else "",
+        existing = await self._memory_client.long_term.search_preferences(
+            preference,
+            category=normalized_category,
+            limit=12,
+            threshold=settings.memory_fact_dedup_threshold,
+        )
+        for pref in existing:
+            if _normalize_predicate(pref.category) != normalized_category:
+                continue
+            if _normalize_text(pref.preference) == normalized_preference:
+                return "Skipped preference: exact duplicate."
+            similarity = pref.metadata.get("similarity")
+            if similarity is not None and float(similarity) >= settings.memory_fact_dedup_threshold:
+                return "Skipped preference: semantic duplicate."
+
+        await self._memory_client.long_term.add_preference(
+            category=normalized_category,
+            preference=preference.strip(),
+            context=context.strip() if isinstance(context, str) and context.strip() else None,
+            confidence=confidence,
+            metadata={
+                "source_kind": source_kind,
+                "source_channel": source_channel,
+                "source_ref": source_ref,
+                "source_note": source_note or "",
+            },
+        )
+        return "Stored preference."
+
+    async def find_similar_memory(self, *, subject: str, predicate: str, object_value: str, limit: int = 6) -> str:
+        if not await self.ensure_available() or self._memory_client is None:
+            return "Relational memory is unavailable."
+
+        normalized_subject = _normalize_subject(subject)
+        normalized_predicate = _normalize_predicate(predicate)
+        exact = await self._memory_client.long_term.get_facts_about(normalized_subject, limit=200)
+        exact_matches = [
+            f for f in exact if _normalize_predicate(f.predicate) == normalized_predicate
+        ]
+        semantic = await self._memory_client.long_term.search_facts(
+            f"{normalized_subject} {normalized_predicate} {object_value}",
             limit=limit,
-            **self._database_kwargs(),
+            threshold=0.6,
         )
+        lines: list[str] = []
+        for fact in exact_matches[:limit]:
+            lines.append(f"- [exact] {fact.subject} -> {fact.predicate} -> {fact.object}")
+        for fact in semantic:
+            marker = "related"
+            if _normalize_text(fact.object) == _normalize_text(object_value):
+                marker = "exact"
+            similarity = fact.metadata.get("similarity")
+            if similarity is None:
+                lines.append(f"- [{marker}] {fact.subject} -> {fact.predicate} -> {fact.object}")
+            else:
+                lines.append(f"- [{marker}] {fact.subject} -> {fact.predicate} -> {fact.object} [similarity: {float(similarity):.2f}]")
+        if not lines:
+            return "No similar memory found."
+        # keep unique lines stable
+        return "\n".join(dict.fromkeys(lines))
 
-        if not records:
-            return "No similar relational memories found."
-
-        lines = []
-        for record in records:
-            object_text = record["object_name"] or record["value_text"]
-            marker = "exact" if record["fact_key"] == target_fact_key else "related"
-            lines.append(
-                f"- [{marker}] {record['subject']} -> {record['predicate']} -> {object_text} "
-                f"[confidence: {record['confidence']}, source: {record['source_kind']}/{record['source_channel']}]"
-            )
-        return "\n".join(lines)
-
-    async def search_memories(self, query: str, limit: int = 8) -> str:
+    async def get_memory_context(self, query: str, max_items: int = 8) -> str:
         if not query.strip():
-            return "Provide a non-empty relational memory query."
+            return "Provide a non-empty memory query."
 
-        if not await self.ensure_available() or self._driver is None:
+        if not await self.ensure_available() or self._memory_client is None:
             return "Relational memory is unavailable. Fall back to SQLite history and MEMORY.md."
 
-        needle = _normalize_text(query)
-        tokens = _query_tokens(query)
-        include_user = any(token in REMEMBER_QUERY_TOKENS for token in tokens)
-
-        records, _, _ = await self._driver.execute_query(
-            """
-            MATCH (subject:MemoryEntity)-[:ASSERTS]->(assertion:MemoryAssertion {status: 'active'})
-            OPTIONAL MATCH (assertion)-[:OBJECT]->(object:MemoryEntity)
-            WITH DISTINCT subject, assertion, object,
-                 [item IN (
-                   [toLower(subject.canonical_name), toLower(assertion.predicate), toLower(coalesce(assertion.value_text, '')), toLower(coalesce(object.canonical_name, ''))] +
-                   [alias IN coalesce(subject.aliases, []) | toLower(alias)] +
-                   [alias IN coalesce(object.aliases, []) | toLower(alias)]
-                 ) WHERE item IS NOT NULL] AS haystack
-            WHERE
-              any(item IN haystack WHERE item CONTAINS $needle) OR
-              any(token IN $tokens WHERE any(item IN haystack WHERE item CONTAINS token)) OR
-              ($include_user AND subject.memory_key = 'person:user')
-            RETURN
-              subject.canonical_name AS subject,
-              subject.entity_type AS subject_type,
-              assertion.predicate AS predicate,
-              assertion.value_text AS value_text,
-              assertion.confidence AS confidence,
-              assertion.source_channel AS source_channel,
-              assertion.source_kind AS source_kind,
-              assertion.source_ref AS source_ref,
-              assertion.last_seen_at AS last_seen_at,
-              object.canonical_name AS object_name,
-              object.entity_type AS object_type
-            ORDER BY assertion.last_seen_at DESC
-            LIMIT $limit
-            """,
-            needle=needle,
-            tokens=tokens,
-            include_user=include_user,
-            limit=limit,
-            **self._database_kwargs(),
+        context = await self._memory_client.get_context(
+            query,
+            include_short_term=False,
+            include_long_term=True,
+            include_reasoning=False,
+            max_items=max_items,
         )
+        return context.strip() or "No relevant memory found."
 
-        if not records:
-            return "No relevant relational memories found."
-
-        lines = []
-        for record in records:
-            object_text = record["object_name"] or record["value_text"]
-            lines.append(
-                f"- {record['subject']} ({record['subject_type']}) -> {record['predicate']} -> {object_text} "
-                f"[confidence: {record['confidence']}, source: {record['source_kind']}/{record['source_channel']}]"
-            )
-
-        return "\n".join(lines)
+    async def search_memory(self, query: str, memory_types: list[str] | None = None, limit: int = 8) -> str:
+        del memory_types  # Currently this capability exposes long-term memory only.
+        return await self.get_memory_context(query, max_items=limit)
 
 
 @dataclass
@@ -602,73 +427,79 @@ class RelationalMemoryCapability(AbstractCapability):
         self._extractor_toolset = FunctionToolset(id="relational-memory-extractor")
 
         @self._toolset.tool
-        async def search_relational_memory(ctx: RunContext, query: str, limit: int = 8) -> str:
-            """
-            Search durable relational memories stored in Neo4j.
-            Use this when the user asks about preferences, identities, relationships, or prior durable facts.
-            """
-
+        async def search_memory(ctx: RunContext, query: str, memory_types: list[str] | None = None, limit: int = 8) -> str:
+            """Search graph memory for relevant long-term facts and preferences."""
             del ctx
-            return await self.store.search_memories(query=query, limit=limit)
+            return await self.store.search_memory(query=query, memory_types=memory_types, limit=limit)
 
         @self._toolset.tool
-        async def upsert_relational_memory(
+        async def get_memory_context(ctx: RunContext, query: str, max_items: int = 8) -> str:
+            """Get concise long-term memory context for a query."""
+            del ctx
+            return await self.store.get_memory_context(query=query, max_items=max_items)
+
+        @self._toolset.tool
+        async def store_fact(
             ctx: RunContext,
             subject: str,
             predicate: str,
             object_value: str,
-            subject_type: str = "unknown",
-            object_type: Literal["value", "entity"] = "value",
-            object_entity_type: str = "unknown",
-            confidence: Literal["low", "medium", "high"] = "high",
-            replace_existing: bool = False,
-            source_note: str | None = None,
+            confidence: float = 0.9,
+            correction: bool = False,
+            note: str | None = None,
         ) -> str:
-            """
-            Store or update one durable relational memory.
-            Use subject 'user' for first-person user facts or preferences.
-            Search first and do not store facts that are already present.
-            Set replace_existing=true when correcting an existing fact for the same predicate.
-            """
-
+            """Store one durable fact. Use correction=true when replacing a previously true value."""
             source_kind = "system" if getattr(ctx.deps, "sender_id", None) == "system_cron" else "user"
             source_ref = f"{ctx.run_id}:{ctx.deps.channel}:{ctx.deps.chat_id}"
-            return await self.store.upsert_memory(
+            return await self.store.store_fact(
                 subject=subject,
                 predicate=predicate,
                 object_value=object_value,
-                subject_type=subject_type,
-                object_type=object_type,
-                object_entity_type=object_entity_type,
                 confidence=confidence,
-                replace_existing=replace_existing,
+                correction=correction,
                 source_kind=source_kind,
                 source_channel=ctx.deps.channel,
                 source_ref=source_ref,
-                source_note=source_note,
+                source_note=note,
+            )
+
+        @self._toolset.tool
+        async def store_preference(
+            ctx: RunContext,
+            category: str,
+            preference: str,
+            context: str | None = None,
+            confidence: float = 0.9,
+            note: str | None = None,
+        ) -> str:
+            """Store one durable user preference."""
+            source_kind = "system" if getattr(ctx.deps, "sender_id", None) == "system_cron" else "user"
+            source_ref = f"{ctx.run_id}:{ctx.deps.channel}:{ctx.deps.chat_id}"
+            return await self.store.store_preference(
+                category=category,
+                preference=preference,
+                context=context,
+                confidence=confidence,
+                source_kind=source_kind,
+                source_channel=ctx.deps.channel,
+                source_ref=source_ref,
+                source_note=note,
             )
 
         @self._extractor_toolset.tool
-        async def find_similar_relational_memory(
+        async def find_similar_memory(
             ctx: RunContext,
             subject: str,
             predicate: str,
             object_value: str,
-            subject_type: str = "unknown",
-            object_type: Literal["value", "entity"] = "value",
-            object_entity_type: str = "unknown",
             limit: int = 6,
         ) -> str:
-            """Find similar active memories for dedup/correction decisions before storing new extracted memories."""
-
+            """Find exact and semantically similar facts before deciding whether to store a candidate memory."""
             del ctx
-            return await self.store.find_similar_memories(
+            return await self.store.find_similar_memory(
                 subject=subject,
                 predicate=predicate,
                 object_value=object_value,
-                subject_type=subject_type,
-                object_type=object_type,
-                object_entity_type=object_entity_type,
                 limit=limit,
             )
 
@@ -683,13 +514,12 @@ class RelationalMemoryCapability(AbstractCapability):
 
     def get_instructions(self):
         return (
-            "You also have relational memory stored in Neo4j.\n"
-            "Use `search_relational_memory` when the user asks about durable facts, preferences, people, organizations, or prior relationships.\n"
-            "Before calling `upsert_relational_memory`, search first if the fact may already exist.\n"
-            "If the same fact is already present, do not store it again.\n"
-            "When a user clearly corrects a prior fact for the same predicate, call `upsert_relational_memory` with replace_existing=true.\n"
-            "For additive facts, keep replace_existing=false so multiple active facts can coexist.\n"
-            "Relational memory complements `MEMORY.md`; do not copy every turn into it."
+            "You also have graph memory stored in Neo4j.\n"
+            "Use `search_memory` or `get_memory_context` when the user asks about durable facts and preferences.\n"
+            "Use `store_fact` for durable declarative facts and `store_preference` for stable user preferences.\n"
+            "Do not store duplicates. If a fact already exists, skip it.\n"
+            "If the user corrects a previously true value for the same subject+predicate, call `store_fact` with correction=true.\n"
+            "Graph memory complements `MEMORY.md`; do not copy every turn into it."
         )
 
     def get_toolset(self):
@@ -707,13 +537,13 @@ class RelationalMemoryCapability(AbstractCapability):
         if not latest_user_text:
             return request_context
 
-        memory_context = await self.store.search_memories(latest_user_text, limit=6)
-        if memory_context.startswith("No relevant relational memories") or memory_context.startswith("Relational memory is unavailable"):
+        memory_context = await self.store.get_memory_context(latest_user_text, max_items=6)
+        if memory_context.startswith("No relevant memory") or memory_context.startswith("Relational memory is unavailable"):
             return request_context
 
         request_context.messages.insert(
             -1,
-            ModelRequest(parts=[SystemPromptPart(content=f"# Relational Memory Context\n{memory_context}")]),
+            ModelRequest(parts=[SystemPromptPart(content=f"# Graph Memory Context\n{memory_context}")]),
         )
         return request_context
 
@@ -734,7 +564,7 @@ class RelationalMemoryCapability(AbstractCapability):
         if not user_text or not assistant_text:
             return result
 
-        existing_memory_context = await self.store.search_memories(user_text, limit=8)
+        existing_memory_context = await self.store.get_memory_context(user_text, max_items=8)
 
         try:
             extraction = await self._extractor.run(
@@ -747,31 +577,45 @@ class RelationalMemoryCapability(AbstractCapability):
                 )
             )
         except Exception as exc:
-            logfire.warning("Relational memory extraction failed", error=str(exc))
+            logfire.warning("Graph memory extraction failed", error=str(exc))
             return result
 
         source_kind = "system" if getattr(ctx.deps, "sender_id", None) == "system_cron" else "user"
         source_ref = f"{ctx.run_id}:{ctx.deps.channel}:{ctx.deps.chat_id}"
 
-        for memory in extraction.output.memories:
-            if memory.confidence == "low":
+        for fact in extraction.output.facts:
+            if fact.confidence < 0.5:
                 continue
             try:
-                await self.store.upsert_memory(
-                    subject=memory.subject,
-                    predicate=memory.predicate,
-                    object_value=memory.object_value,
-                    subject_type=memory.subject_type,
-                    object_type=memory.object_type,
-                    object_entity_type=memory.object_entity_type,
-                    confidence=memory.confidence,
-                    replace_existing=memory.replace_existing,
+                await self.store.store_fact(
+                    subject=fact.subject,
+                    predicate=fact.predicate,
+                    object_value=fact.object_value,
+                    confidence=fact.confidence,
+                    correction=fact.correction,
                     source_kind=source_kind,
                     source_channel=ctx.deps.channel,
                     source_ref=source_ref,
-                    source_note=memory.source_note,
+                    source_note=fact.source_note,
                 )
             except Exception as exc:
-                logfire.warning("Failed to persist extracted relational memory", error=str(exc))
+                logfire.warning("Failed to persist extracted graph-memory fact", error=str(exc))
+
+        for preference in extraction.output.preferences:
+            if preference.confidence < 0.5:
+                continue
+            try:
+                await self.store.store_preference(
+                    category=preference.category,
+                    preference=preference.preference,
+                    context=preference.context,
+                    confidence=preference.confidence,
+                    source_kind=source_kind,
+                    source_channel=ctx.deps.channel,
+                    source_ref=source_ref,
+                    source_note=preference.source_note,
+                )
+            except Exception as exc:
+                logfire.warning("Failed to persist extracted graph-memory preference", error=str(exc))
 
         return result
