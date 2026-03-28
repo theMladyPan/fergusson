@@ -7,12 +7,12 @@ Fergusson is a modular AI assistant with an event-driven architecture:
 - **channels** (CLI, Discord, future inputs) receive messages,
 - the **broker** (Redis) distributes them,
 - the **core agent** decides between direct handling and delegating to a skill,
-- **memory** is per-chat in SQLite.
+- **memory** is one shared SQLite thread across CLI, Discord, and Cron, while outbound delivery remains channel-specific.
 
 ## 2) Architecture by Directory
-- `src/agent/` — agent core, orchestration, memory, skill loading, archiver.
+- `src/agent/` — agent core, orchestration, shared-thread memory, skill loading, archiver.
 - `src/broker/` — message bus and message schemas between channels and runtime.
-- `src/channels/` — integration inputs/outputs (e.g., Discord, CLI adapters).
+- `src/channels/` — integration inputs/outputs (e.g., Discord, CLI adapters) that keep transport-specific `chat_id`s for delivery.
 - `src/tools/` — tools invoked by the agent (bash, filesystem, web).
 - `src/db/` — DB models and session layer for state persistence.
 - `src/prompt/` — Jinja templates for system prompts.
@@ -44,3 +44,7 @@ Before handing off the implementation, check:
 - Do not do a broad documentation refactor unless needed; edit only affected sections.
 - For larger changes, add a short “Migration note” (if behavior changes).
 - If you add a new subsystem, include it in the “Architecture by Directory” section.
+
+## Migration Note
+- Short-term memory is no longer partitioned by per-channel `chat_id`. New work should use the shared history thread configured in `src/config.py`.
+- Original channel and delivery `chat_id` still matter for outbound routing and should be preserved in message metadata when persisting history.
