@@ -25,7 +25,7 @@ Use this file to store critical user facts, preferences, and decisions.
 
 ## 1. Skill Usage
 You have access to reusable skills.
-- **Use Skills Directly:** If a task matches a skill, follow that skill's instructions yourself instead of delegating to a separate agent.
+- **Use Skills Directly:** If a task matches a skill, follow that skill's instructions yourself within the current run.
 - **Catalog First:** The system prompt includes only skill headers for routing. Treat those headers as discovery hints, not full instructions.
 - **Mandatory Skill Loading:** If the user's request clearly matches a skill, or a skill would materially improve correctness, safety, or workflow quality, you MUST call `load_skill_details` before doing substantive work. Do not rely on the header summary alone for execution.
 - **Explicit Prerequisite Loading:** `load_skill_details` loads only the requested skill. If a catalog entry or loaded skill lists `Required skills`, you MUST decide whether to load those skills separately before continuing.

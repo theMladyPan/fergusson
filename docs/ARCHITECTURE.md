@@ -2,8 +2,8 @@
 
 This document outlines the architectural decisions and logic behind the agent system in the Fergusson project. It serves as a guide for how the core agent operates, how shared skills are structured, and how cross-channel communication is handled.
 
-## 1. The Core Agent (The "Omnipotent" Router)
-The Core Agent (`src/agent/core.py`) is the primary interface for all incoming user requests. It acts as an intelligent router and orchestrator.
+## 1. The Core Agent
+The Core Agent (`src/agent/core.py`) is the primary interface for all incoming user requests. It applies native tools and reusable skill instructions directly inside one conversational runtime.
 
 **Logic & Capabilities:**
 *   **Intent Recognition:** It analyzes the user's message to determine if it can handle the request directly using its built-in tools (Bash, Filesystem) or if the task requires specialized expertise.
@@ -13,7 +13,7 @@ The Core Agent (`src/agent/core.py`) is the primary interface for all incoming u
 *   **Loop Protection:** The main conversational run is capped by request count using PydanticAI `UsageLimits(request_limit=10)` by default. This favors fast parallel tool use while stopping excessive guess-and-retry model loops.
 
 ## 2. Shared Skills
-To keep behavior consistent with Codex-style skills, Fergusson loads skills into the agent prompt instead of creating one sub-agent per skill.
+To keep behavior consistent with Codex-style skills, Fergusson loads skills into the agent prompt instead of creating a separate runtime worker for each skill.
 
 **How it works:**
 *   The Core Agent discovers every skill in `workspace/skills/` at startup.

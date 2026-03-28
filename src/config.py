@@ -78,14 +78,9 @@ class Settings(BaseSettings):
     discord: DiscordConfig = DiscordConfig()
     elevenlabs: ElevenLabsConfig = ElevenLabsConfig()
     agent: AgentConfig = AgentConfig(
-        tool_timeout=20,
+        tool_timeout=30,
         retries=2,
-        request_limit=10,
-    )
-    subagent: AgentConfig = AgentConfig(
-        tool_timeout=5,
-        retries=3,
-        request_limit=10,
+        request_limit=20,
     )
     max_conversation_history_len: int = Field(
         15,
