@@ -18,6 +18,7 @@ Fergusson is a modular AI assistant with an event-driven architecture:
 - `src/db/` — DB models and session layer for state persistence.
 - `src/prompt/` — Jinja templates for system prompts.
 - `workspace/skills/` — dynamic skills following the `SKILL.md` standard.
+  Shared reusable skills should hold stable command patterns, while task-specific skills should reference them via `required_skills` instead of duplicating long command playbooks.
 - `docs/` — longer technical documentation of architecture and decisions.
 - `tests/` — automated tests.
 
@@ -46,6 +47,7 @@ Before handing off the implementation, check:
 - For larger changes, add a short “Migration note” (if behavior changes).
 - If you add a new subsystem, include it in the “Architecture by Directory” section.
 - Skills that wrap external CLIs must keep example commands aligned with the current CLI shape, include a `--help`/schema fallback for validation errors, and only reference prerequisite skill IDs that actually exist under `workspace/skills/`.
+- When multiple skills use the same external CLI workflow, keep the reusable command patterns in a shared tracked skill and let task-specific skills add only domain policy, routing rules, and edge-case decisions.
 
 ## Migration Note
 - Short-term memory is no longer partitioned by per-channel `chat_id`. New work should use the shared history thread configured in `src/config.py`.

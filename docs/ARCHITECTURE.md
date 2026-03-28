@@ -20,6 +20,7 @@ To keep behavior consistent with Codex-style skills, Fergusson loads skills into
 *   Skill metadata is used for an overview table, and the skill instructions are appended to the agent's prompt.
 *   When a complex task is identified (e.g., managing a Google Calendar), the agent applies the relevant skill instructions directly while still using the shared toolset.
 *   `load_skill_details` now returns only the requested skill. If that skill lists `Required skills`, the agent must decide which prerequisites to load explicitly instead of relying on registry-side recursive bundling.
+*   Reusable CLI command patterns should live in shared skills, while domain-specific skills should stay thin and reference those shared skills via `Required skills` metadata instead of duplicating command walkthroughs.
 
 ## 3. The Skills Standard
 Skills are defined dynamically using the **Claude Code Skills Standard**. They are stored in `workspace/skills/`.

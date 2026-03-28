@@ -451,6 +451,8 @@ def test_common_gws_operations_skill_encodes_gws_cli_fallbacks():
     assert "do not guess alternate helper subcommands" in content
     assert "gws gmail --help" in content
     assert "gws schema <resource>.<method>" in content
+    assert "Pattern: Fresh inbox pass" in content
+    assert "Pattern: Low-iteration unattended processing" in content
 
     registry = SkillRegistry(repo_root / "workspace" / "skills")
     registry.discover()
@@ -458,3 +460,16 @@ def test_common_gws_operations_skill_encodes_gws_cli_fallbacks():
     skill = registry.skills["common-gws-opeartions"]
     assert skill.metadata.required_bins == ["gws"]
     assert skill.metadata.missing_required_skills == []
+
+
+def test_rubint_accountant_skill_references_common_gws_operations():
+    repo_root = Path(__file__).resolve().parents[1]
+    registry = SkillRegistry(repo_root / "workspace" / "skills")
+    registry.discover()
+
+    skill = registry.skills["rubint-accountant"]
+    assert skill.metadata.required_bins == ["gws"]
+    assert skill.metadata.required_skills == ["common-gws-opeartions"]
+    assert skill.metadata.missing_required_skills == []
+    assert "Load `common-gws-opeartions` before executing this workflow." in skill.instructions
+    assert "Fresh inbox pass" in skill.instructions
