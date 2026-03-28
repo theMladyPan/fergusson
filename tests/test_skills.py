@@ -470,8 +470,9 @@ def test_common_gws_operations_skill_encodes_gws_cli_fallbacks():
     content = skill_path.read_text(encoding="utf-8")
 
     assert "gws gmail +triage --max 10 --format table" in content
-    assert "gws gmail list" in content
-    assert "do not guess alternate helper subcommands" in content
+    assert "top-level Gmail read commands like `list` do not exist" in content
+    assert "Never invent top-level shorthand `list` commands" in content
+    assert "do not spend multiple retries guessing syntax" in content
     assert "gws gmail --help" in content
     assert "gws schema <resource>.<method>" in content
     assert "Pattern: Fresh inbox pass" in content

@@ -326,6 +326,18 @@ gws schema drive.about.get
 gws schema drive.files.list
 ```
 
+## Command Shape Warnings
+
+- Do not invent top-level shorthand `list` commands under Gmail, Drive, or Calendar.
+- For Gmail reads, use one of:
+  - `gws gmail +triage --max 10 --format table`
+  - `gws gmail users messages list --params '{"userId":"me","maxResults":5}' --format table`
+- For Drive reads, use:
+  - `gws drive files list --params ...`
+- For Calendar reads, use:
+  - `gws calendar calendarList list --format table`
+  - `gws calendar events list --params ...`
+
 ## Example Support Scenarios
 
 ### Scenario A: First-time local setup

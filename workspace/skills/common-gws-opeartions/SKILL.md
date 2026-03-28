@@ -25,7 +25,7 @@ Operate as a personal assistant handling inbox triage, outgoing communications, 
   - assume credentials are already stored/provisioned by the environment
 - Prefer helper commands for fast reads:
   - use `gws gmail +triage --max N --format table` for a quick unread inbox summary
-  - do not guess alternate helper subcommands such as `gws gmail list`
+  - top-level Gmail read commands like `list` do not exist; use `+triage` or raw `users messages list`
 - Before write operations, confirm user intent when the action could send mail, modify calendar entries, move files, or overwrite data.
 - Prefer read-first workflows:
   - inspect inbox before replying
@@ -44,6 +44,12 @@ Operate as a personal assistant handling inbox triage, outgoing communications, 
   - inspect `gws <service> --help` for helper commands such as `+triage`, `+reply`, and `+send`
   - inspect `gws schema <resource>.<method>` before retrying raw resource commands
   - retry once with the corrected syntax
+- Never invent top-level shorthand `list` commands under Gmail, Drive, or Calendar.
+- For reads, prefer one of these valid shapes instead:
+  - Gmail helper: `gws gmail +triage ...`
+  - Gmail raw resource: `gws gmail users messages list --params ...`
+  - Drive raw resource: `gws drive files list --params ...`
+  - Calendar raw resource: `gws calendar events list --params ...` or `gws calendar calendarList list --format table`
 - When the user imposes a small tool budget, start with the highest-yield helper command instead of probing multiple equivalent forms.
 - In unattended jobs, permit at most one correction cycle:
   - try the preferred helper or raw command
@@ -72,7 +78,7 @@ gws gmail +triage --max 20 --query 'in:inbox newer_than:1d -label:f' --format ta
 gws gmail users messages list --params '{"userId":"me","q":"in:inbox newer_than:1d -label:f","maxResults":20}' --format table
 ```
 
-- Do not iterate through alternative list syntaxes such as `gws gmail list`.
+- Do not iterate through invented shorthand syntaxes. Stick to `+triage` or `users messages list`.
 
 ### Pattern: Resolve Gmail labels once per run
 - Resolve label IDs once before any message modifications, then reuse them for the rest of the run.
