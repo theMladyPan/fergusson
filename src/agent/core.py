@@ -2,6 +2,7 @@ import os
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import logfire
@@ -263,8 +264,20 @@ class AgentManager:
                 "[System notice: The previous attempt hit the runtime request limit for this turn. "
                 "Respond without calling tools, based only on available context.]"
             )
-            return await self.request_limit_recovery_agent.run(
-                recovery_prompt,
-                deps=deps,
-                message_history=history,
-            )
+            try:
+                return await self.request_limit_recovery_agent.run(
+                    recovery_prompt,
+                    deps=deps,
+                    message_history=history,
+                )
+            except Exception as recovery_exc:
+                logfire.error(
+                    f"Request-limit recovery agent failed: {recovery_exc}",
+                    _exc_info=True,
+                )
+                return SimpleNamespace(
+                    output=(
+                        "I hit the request limit for this turn and also failed to generate a recovery reply. "
+                        "Please retry with a narrower follow-up."
+                    )
+                )
