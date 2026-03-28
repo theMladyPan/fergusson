@@ -13,7 +13,7 @@ class Archiver:
         self.model = model
         self.agent = Agent(self.model)
 
-        template_path = Path(__file__).parents[1] / "prompt" / "archiver.j2"
+        template_path = Path(__file__).parents[1] / "prompt" / "archiver.md"
         with open(template_path, "r") as f:
             self.template = Template(f.read())
 

@@ -53,9 +53,7 @@ def resolve_model_spec(model_spec: str, retrying_client: AsyncClient | None = No
 
     normalized_spec = model_spec.strip()
     if not normalized_spec or ":" not in normalized_spec:
-        raise ValueError(
-            f"Invalid model spec '{model_spec}'. Expected a non-empty PydanticAI provider:model string."
-        )
+        raise ValueError(f"Invalid model spec '{model_spec}'. Expected a non-empty PydanticAI provider:model string.")
 
     provider_name, model_name = normalized_spec.split(":", 1)
 
@@ -106,7 +104,7 @@ class AgentDeps:
 
 class AgentManager:
     def _build_system_prompt(self) -> str:
-        template_path = Path(__file__).parents[1] / "prompt" / "core.j2"
+        template_path = Path(__file__).parents[1] / "prompt" / "core.md"
         with open(template_path, "r") as f:
             template = Template(f.read())
 
