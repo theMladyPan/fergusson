@@ -7,7 +7,7 @@ Fergusson is a modular AI assistant with an event-driven architecture:
 - **channels** (CLI, Discord, future inputs) receive messages,
 - the **broker** (Redis) distributes them,
 - the **core agent** applies native tools and reusable skills directly,
-- **memory** is layered: one shared SQLite thread for recent conversation, optional Neo4j graph memory for durable structured facts/preferences, and `MEMORY.md` for human-readable long-term notes. Graph memory is backed by `neo4j-agent-memory` with semantic/exact duplicate suppression and extractor prompt rules with do/don't examples. Outbound delivery remains channel-specific.
+- **memory** is layered: one shared SQLite thread for recent conversation, optional Neo4j graph memory for durable structured facts/preferences, and `MEMORY.md` for human-readable long-term notes. Prompt guidance uses tiered memory placement: high-signal anchor facts in `MEMORY.md`, richer structured detail in graph memory, with compact graph-detail references in `MEMORY.md` when relevant. Graph memory is backed by `neo4j-agent-memory` with semantic/exact duplicate suppression and extractor prompt rules with do/don't examples. Outbound delivery remains channel-specific.
 
 ## 2) Architecture by Directory
 - `src/agent/` — agent core, orchestration, shared-thread memory, Neo4j graph-memory capability, skill loading, archiver. Graph memory uses `neo4j-agent-memory` (long-term facts/preferences), library-style tools (`search_memory`, `get_memory_context`, `store_fact`, `store_preference`), semantic dedup, and temporal correction handling (`correction=true` closes previous conflicting facts by setting `valid_until`). Skill loading now returns one requested skill at a time; prerequisites are metadata hints that the agent must load explicitly.
@@ -17,6 +17,8 @@ Fergusson is a modular AI assistant with an event-driven architecture:
 - `src/tools/` — tools invoked by the agent (bash, filesystem, web).
 - `src/db/` — DB models and session layer for state persistence.
 - `src/prompt/` — Jinja templates for system prompts (`core.md`, `archiver.md`) and extractor prompts (for example relational-memory extraction policy/examples).
+  Prompt policy for memory is decision-oriented rather than hard imperative: the agent can choose whether to keep concise anchors in `MEMORY.md`, store detail in graph memory, and condense/relocate over-detailed `MEMORY.md` content into graph memory.
+  Core communication policy should favor natural conversational phrasing by default (including Slovak when user speaks Slovak), avoid administrative/report-style confirmations for routine chat, and keep memory-save acknowledgments implicit unless explicit confirmation is needed.
 - `workspace/skills/` — dynamic skills following the `SKILL.md` standard.
   Shared reusable skills should hold stable command patterns, while task-specific skills should reference them via `required_skills` instead of duplicating long command playbooks.
 - `docs/` — longer technical documentation of architecture and decisions.

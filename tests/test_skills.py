@@ -389,6 +389,9 @@ Condense findings carefully.
     assert "you MUST call `load_skill_details` before doing substantive work." in prompt
     assert "`load_skill_details` loads only the requested skill." in prompt
     assert "you MUST load that prerequisite skill explicitly before continuing." in prompt
+    assert "Natural default wording" in prompt
+    assert "Avoid admin/report voice for routine chat" in prompt
+    assert "Memory mentions are usually implicit" in prompt
     assert "## Skill: Researcher (`researcher`)" in prompt
     assert "Description: Search the web and summarize findings." in prompt
     assert "Allowed tools: get_content_from_url" in prompt
