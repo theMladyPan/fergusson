@@ -13,6 +13,7 @@ Fergusson is a modular AI assistant with an event-driven architecture:
 - `src/agent/` — agent core, orchestration, shared-thread memory, skill loading, archiver.
 - `src/broker/` — message bus and message schemas between channels and runtime.
 - `src/channels/` — integration inputs/outputs (e.g., Discord, CLI adapters) that keep transport-specific `chat_id`s for delivery.
+- `src/config.py` — environment-backed runtime settings; model selection uses `SMART_MODEL` / `FAST_MODEL` as PydanticAI `provider:model` strings, while `workspace/config/config.json` remains for non-model app config.
 - `src/tools/` — tools invoked by the agent (bash, filesystem, web).
 - `src/db/` — DB models and session layer for state persistence.
 - `src/prompt/` — Jinja templates for system prompts.
@@ -48,6 +49,7 @@ Before handing off the implementation, check:
 ## Migration Note
 - Short-term memory is no longer partitioned by per-channel `chat_id`. New work should use the shared history thread configured in `src/config.py`.
 - Original channel and delivery `chat_id` still matter for outbound routing and should be preserved in message metadata when persisting history.
+- Model selection no longer comes from `workspace/config/config.json`. New work should use env variables `SMART_MODEL` and `FAST_MODEL` with native PydanticAI `provider:model` strings.
 
 
 ## ExecPlans

@@ -2,6 +2,7 @@ import os
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import logfire
 from httpx import AsyncClient, HTTPStatusError
@@ -18,7 +19,7 @@ from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponenti
 from src.agent.memory import get_recent_delivery_destinations
 from src.agent.skills import SkillRegistry
 from src.broker.bus import MessageBus
-from src.config import app_config, settings
+from src.config import settings
 from src.db.session import async_session
 from src.tools import all_tools
 
@@ -45,6 +46,55 @@ def create_retrying_client() -> AsyncClient:
         validate_response=should_retry_status,
     )
     return AsyncClient(transport=transport, timeout=15)
+
+
+def resolve_model_spec(model_spec: str, retrying_client: AsyncClient | None = None) -> Any:
+    """Resolve an env-provided provider:model string into a model instance when wrapping is needed."""
+
+    normalized_spec = model_spec.strip()
+    if not normalized_spec or ":" not in normalized_spec:
+        raise ValueError(
+            f"Invalid model spec '{model_spec}'. Expected a non-empty PydanticAI provider:model string."
+        )
+
+    provider_name, model_name = normalized_spec.split(":", 1)
+
+    if provider_name in {"openai", "openai-chat"}:
+        client = retrying_client or create_retrying_client()
+        if settings.debug:
+            logfire.instrument_httpx(client=client)
+
+        provider = OpenAIProvider(
+            api_key=os.environ.get("OPENAI_API_KEY"),
+            http_client=client,
+        )
+
+        # This is required for prompts and completions to be captured in the spans.
+        os.environ["OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"] = "true"
+        logfire.instrument_openai(openai_client=provider.client)
+        return OpenAIChatModel(
+            model_name=model_name,
+            provider=provider,
+        )
+
+    if provider_name == "google-gla":
+        client = retrying_client or create_retrying_client()
+        if settings.debug:
+            logfire.instrument_httpx(client=client)
+
+        provider = GoogleProvider(
+            api_key=os.environ.get("GOOGLE_API_KEY"),
+            http_client=client,
+            vertexai=False,
+        )
+        logfire.instrument_google_genai(provider=provider.client)
+        return GoogleModel(
+            model_name=model_name,
+            provider=provider,
+        )
+
+    # All other native PydanticAI model strings pass through unchanged.
+    return normalized_spec
 
 
 @dataclass
@@ -78,60 +128,11 @@ class AgentManager:
 
         return system_prompt
 
-    def _build_model(self, model_config):
-        provider_name = model_config.provider
-        provider_info = app_config.providers.get(provider_name)
-
-        retrying_client = create_retrying_client()
-
-        if settings.debug:
-            logfire.instrument_httpx(
-                client=retrying_client,
-            )
-
-        if not provider_info:
-            logfire.warning(f"Provider '{provider_name}' not found in config. Defaulting to provider's type as name.")
-            return f"{provider_name}:{model_config.model}"
-
-        api_key = provider_info.api_key
-        if not api_key and provider_info.api_key_env:
-            api_key = os.environ.get(provider_info.api_key_env)
-
-        if provider_info.type == "openai":
-            provider = OpenAIProvider(
-                base_url=provider_info.base_url,
-                api_key=api_key,
-                http_client=retrying_client,
-            )
-
-            # This is required for prompts and completions to be captured in the spans
-            os.environ["OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"] = "true"
-            logfire.instrument_openai(openai_client=provider.client)
-
-            return OpenAIChatModel(
-                model_name=model_config.model,
-                provider=provider,
-            )
-        elif provider_info.type == "gemini":
-            provider = GoogleProvider(
-                api_key=api_key,
-                http_client=retrying_client,
-            )
-            logfire.instrument_google_genai(provider=provider.client)
-
-            # Auto-instrument Gemini interactions for better observability
-            return GoogleModel(
-                model_name=model_config.model,
-                provider=provider,
-            )
-        else:
-            return f"{provider_info.type}:{model_config.model}"
-
     def __init__(self, bus: MessageBus):
         self.bus = bus
 
-        self.smart_model = self._build_model(app_config.models.smart)
-        self.fast_model = self._build_model(app_config.models.fast)
+        self.smart_model = resolve_model_spec(settings.smart_model)
+        self.fast_model = resolve_model_spec(settings.fast_model)
 
         # Use the smart model for the Core Agent
         self.model = self.smart_model

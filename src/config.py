@@ -1,37 +1,8 @@
 import json
 from pathlib import Path
-from typing import ClassVar
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
-
-# Base Models for JSON config
-class ProviderConfig(BaseModel):
-    type: str = "openai"
-    base_url: str | None = None
-    api_key: str | None = None
-    api_key_env: str | None = None
-
-
-class ModelSelection(BaseModel):
-    provider: str
-    model: str
-
-
-class ModelsConfig(BaseModel):
-    smart: ModelSelection = Field(
-        default_factory=lambda: ModelSelection(
-            provider="default",
-            model="gpt-4.1",
-        )
-    )
-    fast: ModelSelection = Field(
-        default_factory=lambda: ModelSelection(
-            provider="default",
-            model="gpt-4.1-mini",
-        )
-    )
 
 
 class ChannelConfig(BaseModel):
@@ -50,12 +21,11 @@ class MCPServerConfig(BaseModel):
 
 
 class AppConfig(BaseModel):
-    """The JSON Configuration file structure."""
+    """The JSON configuration file structure for non-model runtime config."""
 
-    providers: dict[str, ProviderConfig] = Field(default_factory=dict)
-    models: ModelsConfig = Field(default_factory=ModelsConfig)
     channels: dict[str, ChannelConfig] = Field(default_factory=dict)
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
+    model_config = ConfigDict(extra="ignore")
 
 
 def load_config(path: str | Path) -> AppConfig:
@@ -120,6 +90,14 @@ class Settings(BaseSettings):
     max_conversation_history_len: int = Field(
         15,
         description="Maximum number of messages to keep in conversation history before compacting",
+    )
+    smart_model: str = Field(
+        "google-gla:gemini-3-flash-preview",
+        description="Primary agent model in native PydanticAI provider:model format",
+    )
+    fast_model: str = Field(
+        "google-gla:gemini-3.1-flash-lite-preview",
+        description="Fast/utility agent model in native PydanticAI provider:model format",
     )
     shared_history_thread_id: str = Field(
         "main",

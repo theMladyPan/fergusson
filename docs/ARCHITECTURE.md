@@ -9,6 +9,7 @@ The Core Agent (`src/agent/core.py`) is the primary interface for all incoming u
 *   **Intent Recognition:** It analyzes the user's message to determine if it can handle the request directly using its built-in tools (Bash, Filesystem) or if the task requires specialized expertise.
 *   **Guardrails:** Given its access to bash execution (`src/tools/bash.py`), it is configured to intercept hazardous commands (like `rm`, `sudo`) and explicitly request user permission before execution.
 *   **Memory Integration:** It maintains a persistent context of the conversation using SQLite (`state.db`). It retrieves history from one shared thread across CLI, Discord, and Cron, while preserving transport-specific routing metadata for outbound replies.
+*   **Model Configuration:** The agent now loads `SMART_MODEL` and `FAST_MODEL` directly from environment variables as native PydanticAI `provider:model` strings. Fergusson keeps a thin wrapper only for OpenAI and Google direct-provider strings so existing retry and Logfire instrumentation behavior is preserved.
 
 ## 2. Shared Skills
 To keep behavior consistent with Codex-style skills, Fergusson loads skills into the agent prompt instead of creating one sub-agent per skill.
@@ -42,11 +43,13 @@ Fergusson operates across multiple channels (CLI, Discord, Cron) via a centraliz
 
 **Implementation Notes:**
 *   Shared history configuration lives in `src/config.py` via `shared_history_thread_id`.
+*   Model selection also lives in `src/config.py` via env-backed `smart_model` and `fast_model`. `workspace/config/config.json` is now limited to non-model runtime config such as channels and MCP servers.
 *   The main runtime loop in `src/runners.py` resolves every inbound message to the shared thread before calling the agent and before triggering compaction.
 *   Stored rows in `src/db/models.py` continue to record the origin channel, and message metadata stores the original transport `chat_id` used for recent-chat lookup and channel replies.
 
 ## Migration Note
 *   This repository now assumes a fresh or reset SQLite history is acceptable. Existing per-channel rows do not need to be migrated because durable preferences and critical facts belong in `MEMORY.md`.
+*   Model/provider aliases are no longer defined in `workspace/config/config.json`. Use native PydanticAI model strings like `openai:...`, `google-gla:...`, or `gateway/...` in `SMART_MODEL` and `FAST_MODEL` instead.
 
 ## 5. Future Expansions (Phase 5 & 6)
 *   **Graph Memory (Neo4j):** Transitioning from a shared SQLite thread to a semantic graph database to connect concepts, entities, and long-term facts across all conversations.

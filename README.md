@@ -53,6 +53,20 @@ graph TD
 3. **Core Agent**: An "omnipotent" router built on `pydantic-ai`. It handles intent recognition, maintains conversation state (via local SQLite), and decides which native tools and skills to apply.
 4. **Skills**: Dynamically loaded instructions based on the [Claude Code Skills standard](https://code.claude.com/docs/en/skills) (`SKILL.md` with YAML frontmatter). Skills are loaded into agent context instead of being spawned as separate per-skill agents.
 
+## Model Configuration
+
+Model selection is configured directly from environment variables using native PydanticAI `provider:model` strings.
+
+```bash
+export SMART_MODEL="google-gla:gemini-3-pro-preview"
+export FAST_MODEL="openai:gpt-4.1-mini"
+```
+
+- `SMART_MODEL` is used by the core agent and archiver.
+- `FAST_MODEL` is used by lightweight helper flows such as voice rewriting.
+- `workspace/config/config.json` now configures only non-model runtime settings such as enabled channels and MCP servers.
+- Custom Fergusson provider aliases are no longer supported; use native PydanticAI model strings such as `openai:...`, `google-gla:...`, or `gateway/...`.
+
 ## Why Fergusson? (vs. Nanobot or OpenClaw)
 
 While projects like [Nanobot](https://github.com/HKUDS/nanobot) and [OpenClaw](https://github.com/openclaw/openclaw) offer interesting approaches to personal AI, Fergusson's architecture solves specific scaling and reliability pain points.
