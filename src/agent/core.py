@@ -165,15 +165,17 @@ class AgentManager:
         @self.core_agent.tool_plain
         async def load_skill_details(skill_id: str) -> str:
             """
-            Loads the full instructions for a specific skill and any prerequisite skills it declares.
+            Loads the full instructions for a specific skill only.
+            Required skills are not loaded automatically and must be loaded separately if needed.
             Use this when a skill from the catalog is relevant and you need its full workflow guidance.
             """
 
-            bundle = self.registry.load_skill_bundle(skill_id)
+            skill_details = self.registry.load_skill_details(skill_id)
             return (
-                "Authoritative skill guidance loaded below. Follow these instructions for the current task, "
-                "including any declared tool restrictions and prerequisite skills.\n\n"
-                f"{bundle}"
+                "Authoritative skill guidance for the requested skill is loaded below. "
+                "Follow these instructions for the current task. Required skills listed below are hints only "
+                "and are not loaded automatically.\n\n"
+                f"{skill_details}"
             )
 
         @self.core_agent.tool_plain

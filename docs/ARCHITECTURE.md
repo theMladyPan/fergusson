@@ -18,6 +18,7 @@ To keep behavior consistent with Codex-style skills, Fergusson loads skills into
 *   The Core Agent discovers every skill in `workspace/skills/` at startup.
 *   Skill metadata is used for an overview table, and the skill instructions are appended to the agent's prompt.
 *   When a complex task is identified (e.g., managing a Google Calendar), the agent applies the relevant skill instructions directly while still using the shared toolset.
+*   `load_skill_details` now returns only the requested skill. If that skill lists `Required skills`, the agent must decide which prerequisites to load explicitly instead of relying on registry-side recursive bundling.
 
 ## 3. The Skills Standard
 Skills are defined dynamically using the **Claude Code Skills Standard**. They are stored in `workspace/skills/`.
@@ -29,6 +30,7 @@ Skills are defined dynamically using the **Claude Code Skills Standard**. They a
 
 **Why this standard?**
 Using a file-based standard allows us to hot-swap, update, or add new capabilities to the system without modifying the core python code. The `SkillRegistry` (`src/agent/skills.py`) parses these directories at startup and injects their metadata into the Core Agent's system prompt.
+Missing prerequisite skill references are treated as warnings and surfaced back to the agent in the skill catalog/detail output rather than crashing discovery.
 
 ## 4. Cross-Channel Awareness
 Fergusson operates across multiple channels (CLI, Discord, Cron) via a centralized Redis message broker.

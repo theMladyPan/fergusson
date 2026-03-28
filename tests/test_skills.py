@@ -68,6 +68,7 @@ description: Search the web and summarize findings.
 
     assert "Do not treat skills as separate agents" in prompt
     assert "Call `load_skill_details` before executing a non-trivial skill workflow." in prompt
+    assert "Required skills are hints only. They are not loaded automatically" in prompt
     assert "## Skill: Researcher (`researcher`)" in prompt
     assert "Description: Search the web and summarize findings." in prompt
     assert "Allowed tools: all built-in tools" in prompt
@@ -190,10 +191,11 @@ Only inspect repository state and summarize findings.
     assert "Allowed tools: read_file_content, list_files" in prompt
     assert "Required skills: repo-map" in prompt
     assert "Required binaries: git" in prompt
+    assert "Missing required skills: repo-map" in prompt
     assert "Only inspect repository state and summarize findings." not in prompt
 
 
-def test_load_skill_bundle_returns_requested_skill_content(tmp_path: Path):
+def test_load_skill_details_returns_requested_skill_content_only(tmp_path: Path):
     _write_skill(
         tmp_path,
         "researcher",
@@ -210,14 +212,14 @@ description: Search the web and summarize findings.
     registry = SkillRegistry(tmp_path)
     registry.discover()
 
-    bundle = registry.load_skill_bundle("researcher")
+    details = registry.load_skill_details("researcher")
 
-    assert "## Skill: Researcher (`researcher`)" in bundle
-    assert "Gather current sources." in bundle
-    assert "Cite the sources in the final answer." in bundle
+    assert "## Skill: Researcher (`researcher`)" in details
+    assert "Gather current sources." in details
+    assert "Cite the sources in the final answer." in details
 
 
-def test_load_skill_bundle_includes_prerequisites_in_dependency_order(tmp_path: Path):
+def test_load_skill_details_does_not_inline_prerequisite_skills(tmp_path: Path):
     _write_skill(
         tmp_path,
         "gws-shared",
@@ -266,14 +268,16 @@ Persona instructions.
     registry = SkillRegistry(tmp_path)
     registry.discover()
 
-    bundle = registry.load_skill_bundle("persona")
+    details = registry.load_skill_details("persona")
 
-    assert bundle.index("## Skill: gws-shared (`gws-shared`)") < bundle.index("## Skill: gws-gmail (`gws-gmail`)")
-    assert bundle.index("## Skill: gws-gmail (`gws-gmail`)") < bundle.index("## Skill: persona (`persona`)")
-    assert bundle.count("## Skill: gws-shared (`gws-shared`)") == 1
+    assert "## Skill: persona (`persona`)" in details
+    assert "Required skills: gws-gmail, gws-shared" in details
+    assert "Loading behavior: Required skills listed here are not loaded automatically." in details
+    assert "## Skill: gws-shared (`gws-shared`)" not in details
+    assert "## Skill: gws-gmail (`gws-gmail`)" not in details
 
 
-def test_load_skill_bundle_detects_cycles(tmp_path: Path):
+def test_discover_warns_about_missing_required_skills_and_surfaces_them(tmp_path: Path):
     _write_skill(
         tmp_path,
         "alpha",
@@ -284,37 +288,24 @@ metadata:
   openclaw:
     requires:
       skills:
-        - beta
+        - gamma
 ---
 
 Alpha instructions.
-""",
-    )
-    _write_skill(
-        tmp_path,
-        "beta",
-        """---
-name: beta
-description: Beta skill.
-metadata:
-  openclaw:
-    requires:
-      skills:
-        - alpha
----
-
-Beta instructions.
 """,
     )
 
     registry = SkillRegistry(tmp_path)
     registry.discover()
 
-    with pytest.raises(ValueError, match="Cycle detected in skill prerequisites: alpha -> beta -> alpha"):
-        registry.load_skill_bundle("alpha")
+    prompt = registry.get_skill_catalog_prompt()
+    details = registry.load_skill_details("alpha")
+
+    assert "Missing required skills: gamma" in prompt
+    assert "Missing required skills: gamma" in details
 
 
-def test_load_skill_bundle_reports_unknown_skill_with_suggestions(tmp_path: Path):
+def test_load_skill_details_reports_unknown_skill_with_suggestions(tmp_path: Path):
     _write_skill(
         tmp_path,
         "gws-gmail",
@@ -342,7 +333,7 @@ Drive instructions.
     registry.discover()
 
     with pytest.raises(KeyError, match="Unknown skill 'gws-gmai'.*Close matches: gws-gmail"):
-        registry.load_skill_bundle("gws-gmai")
+        registry.load_skill_details("gws-gmai")
 
 
 def test_agent_system_prompt_includes_skill_catalog_not_full_bodies(tmp_path: Path):
@@ -388,7 +379,8 @@ Condense findings carefully.
 
     assert "Treat those headers as discovery hints, not full instructions." in prompt
     assert "you MUST call `load_skill_details` before doing substantive work." in prompt
-    assert "If the skill says another skill must be read or loaded first, you MUST load that prerequisite skill before continuing." in prompt
+    assert "`load_skill_details` loads only the requested skill." in prompt
+    assert "you MUST load that prerequisite skill explicitly before continuing." in prompt
     assert "## Skill: Researcher (`researcher`)" in prompt
     assert "Description: Search the web and summarize findings." in prompt
     assert "Allowed tools: get_content_from_url" in prompt
