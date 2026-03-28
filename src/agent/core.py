@@ -9,6 +9,7 @@ from httpx import AsyncClient, HTTPStatusError
 from jinja2 import Template
 from pydantic_ai import Agent, AgentRunResult, RunContext
 from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
+from pydantic_ai.usage import UsageLimits
 from pydantic_ai.models.google import GoogleModel
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.google import GoogleProvider
@@ -222,6 +223,10 @@ class AgentManager:
             user_input,
             deps=deps,
             message_history=history,
+            usage_limits=UsageLimits(
+                request_limit=None,
+                tool_calls_limit=settings.agent.tool_call_limit,
+            ),
         )
 
         return result

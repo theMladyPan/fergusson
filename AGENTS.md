@@ -45,6 +45,7 @@ Before handing off the implementation, check:
 - Do not do a broad documentation refactor unless needed; edit only affected sections.
 - For larger changes, add a short “Migration note” (if behavior changes).
 - If you add a new subsystem, include it in the “Architecture by Directory” section.
+- Skills that wrap external CLIs must keep example commands aligned with the current CLI shape, include a `--help`/schema fallback for validation errors, and only reference prerequisite skill IDs that actually exist under `workspace/skills/`.
 
 ## Migration Note
 - Short-term memory is no longer partitioned by per-channel `chat_id`. New work should use the shared history thread configured in `src/config.py`.

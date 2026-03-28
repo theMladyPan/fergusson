@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 import logfire
+from pydantic_ai.exceptions import UsageLimitExceeded
 
 from src.agent.archiver import Archiver
 from src.agent.core import AgentManager
@@ -143,6 +144,18 @@ async def agent_loop(bus: MessageBus, manager: AgentManager, archiver: Archiver)
                             }
                         )
 
+                    except UsageLimitExceeded as e:
+                        logfire.warning(f"Agent usage limit exceeded: {e}")
+                        error_reply = OutboundMessage(
+                            chat_id=msg.chat_id,
+                            content=(
+                                "I hit the runtime tool-call limit for this turn. "
+                                "Please narrow the request or continue in a follow-up message."
+                            ),
+                            channel=msg.channel,
+                            reply_to=msg.metadata.get("message_id"),
+                        )
+                        await bus.publish_outbound(error_reply)
                     except Exception as e:
                         logfire.error(
                             f"Agent execution error: {e}",

@@ -1,6 +1,7 @@
 import os
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -388,3 +389,44 @@ Condense findings carefully.
     assert "Required binaries: curl" in prompt
     assert "Gather current sources." not in prompt
     assert "Condense findings carefully." not in prompt
+
+
+@pytest.mark.asyncio
+async def test_agent_manager_run_passes_usage_limits(monkeypatch):
+    captured = {}
+
+    async def fake_run(user_input, **kwargs):
+        captured["user_input"] = user_input
+        captured["kwargs"] = kwargs
+        return SimpleNamespace(output="ok")
+
+    manager = AgentManager.__new__(AgentManager)
+    manager.core_agent = SimpleNamespace(run=fake_run)
+
+    await AgentManager.run(manager, "hello", history=[], chat_id="cli_chat", channel="cli")
+
+    usage_limits = captured["kwargs"]["usage_limits"]
+    assert usage_limits.request_limit is None
+    assert usage_limits.tool_calls_limit == 4
+    assert captured["kwargs"]["message_history"] == []
+    assert captured["kwargs"]["deps"].chat_id == "cli_chat"
+
+
+def test_personal_google_workspace_skill_encodes_gws_cli_fallbacks():
+    repo_root = Path(__file__).resolve().parents[1]
+    skill_path = repo_root / "workspace" / "skills" / "personal-google-workspace-assistant" / "SKILL.md"
+
+    content = skill_path.read_text(encoding="utf-8")
+
+    assert "gws gmail +triage --max 10 --format table" in content
+    assert "gws gmail list" in content
+    assert "do not guess alternate helper subcommands" in content
+    assert "gws gmail --help" in content
+    assert "gws schema <resource>.<method>" in content
+
+    registry = SkillRegistry(repo_root / "workspace" / "skills")
+    registry.discover()
+
+    skill = registry.skills["personal-google-workspace-assistant"]
+    assert skill.metadata.required_bins == ["gws"]
+    assert skill.metadata.missing_required_skills == []
