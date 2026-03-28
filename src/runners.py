@@ -158,7 +158,7 @@ async def agent_loop(bus: MessageBus, manager: AgentManager, archiver: Archiver)
                             chat_id=msg.chat_id,
                             content=f"Sorry, I encountered an error: {str(e)}",
                             channel=msg.channel,
-                            reply_to=msg.metadata.get("message_id"),
+                            reply_to=msg.metadata.get("message_id") if msg.metadata else None,
                         )
                         await bus.publish_outbound(error_reply)
 

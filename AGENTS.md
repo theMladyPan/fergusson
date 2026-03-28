@@ -6,7 +6,7 @@ This document is binding for the entire repository (`/workspace/fergusson`).
 Fergusson is a modular AI assistant with an event-driven architecture:
 - **channels** (CLI, Discord, future inputs) receive messages,
 - the **broker** (Redis) distributes them,
-- the **core agent** decides between direct handling and delegating to a skill,
+- the **core agent** applies native tools and reusable skills directly,
 - **memory** is one shared SQLite thread across CLI, Discord, and Cron, while outbound delivery remains channel-specific.
 
 ## 2) Architecture by Directory

@@ -210,6 +210,11 @@ class _FakeBus:
         self.outbound_messages.append(msg)
 
 
+class _FailingManager:
+    async def run(self, user_input, history=None, chat_id="cli", channel="cli"):
+        raise RuntimeError("forced failure")
+
+
 @pytest.mark.asyncio
 async def test_agent_loop_uses_shared_history_but_preserves_outbound_chat_id(session_factory, monkeypatch):
     monkeypatch.setattr("src.runners.async_session", session_factory)
@@ -245,3 +250,28 @@ async def test_agent_loop_uses_shared_history_but_preserves_outbound_chat_id(ses
     assert manager.calls[0]["chat_id"] == "discord-channel-42"
     assert manager.calls[0]["channel"] == "discord"
 
+
+@pytest.mark.asyncio
+async def test_agent_loop_sends_error_reply_when_metadata_is_missing(session_factory, monkeypatch):
+    monkeypatch.setattr("src.runners.async_session", session_factory)
+
+    inbound = InboundMessage(
+        sender_id="system_cron",
+        username="System Cron",
+        chat_id="cron_chat",
+        content="Run the routine now.",
+        channel="cron",
+    )
+
+    bus = _FakeBus(inbound)
+    manager = _FailingManager()
+    archiver = _FakeArchiver()
+
+    await agent_loop(bus, manager, archiver)
+
+    assert len(bus.outbound_messages) == 1
+    outbound = bus.outbound_messages[0]
+    assert outbound.chat_id == "cron_chat"
+    assert outbound.channel == "cron"
+    assert outbound.reply_to is None
+    assert "forced failure" in outbound.content
