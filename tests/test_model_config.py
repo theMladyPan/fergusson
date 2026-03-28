@@ -22,6 +22,21 @@ def test_settings_load_model_specs_from_env(monkeypatch):
     assert settings.fast_model == "openai:gpt-4.1-mini"
 
 
+def test_settings_load_neo4j_from_env(monkeypatch):
+    monkeypatch.setenv("NEO4J_URI", "neo4j+s://example.databases.neo4j.io")
+    monkeypatch.setenv("NEO4J_USER", "neo4j-user")
+    monkeypatch.setenv("NEO4J_PASSWORD", "secret")
+    monkeypatch.setenv("NEO4J_DATABASE", "neo4j")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.neo4j.uri == "neo4j+s://example.databases.neo4j.io"
+    assert settings.neo4j.user == "neo4j-user"
+    assert settings.neo4j.password == "secret"
+    assert settings.neo4j.database == "neo4j"
+    assert settings.neo4j.is_configured is True
+
+
 def test_load_config_ignores_legacy_model_sections(tmp_path: Path):
     config_path = tmp_path / "config.json"
     config_path.write_text(

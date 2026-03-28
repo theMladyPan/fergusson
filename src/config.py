@@ -74,13 +74,33 @@ class AgentConfig(BaseSettings):
     request_limit: int = Field(..., description="Maximum number of model requests allowed in a single run")
 
 
+class Neo4jConfig(BaseSettings):
+    uri: str | None = None
+    user: str | None = None
+    password: str | None = None
+    database: str = "neo4j"
+    enabled: bool = True
+    model_config = SettingsConfigDict(
+        env_prefix="NEO4J_",
+        env_file=".env",
+        extra="ignore",
+    )
+
+    @property
+    def is_configured(self) -> bool:
+        return bool(self.enabled and self.uri and self.user and self.password)
+
+
 class Settings(BaseSettings):
-    discord: DiscordConfig = DiscordConfig()
-    elevenlabs: ElevenLabsConfig = ElevenLabsConfig()
-    agent: AgentConfig = AgentConfig(
-        tool_timeout=30,
-        retries=2,
-        request_limit=20,
+    discord: DiscordConfig = Field(default_factory=DiscordConfig)
+    elevenlabs: ElevenLabsConfig = Field(default_factory=ElevenLabsConfig)
+    neo4j: Neo4jConfig = Field(default_factory=Neo4jConfig)
+    agent: AgentConfig = Field(
+        default_factory=lambda: AgentConfig(
+            tool_timeout=30,
+            retries=2,
+            request_limit=10,
+        )
     )
     max_conversation_history_len: int = Field(
         15,

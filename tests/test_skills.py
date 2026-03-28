@@ -409,14 +409,16 @@ async def test_agent_manager_run_passes_usage_limits(monkeypatch):
 
     manager = AgentManager.__new__(AgentManager)
     manager.core_agent = SimpleNamespace(run=fake_run)
+    manager.relational_memory_store = None
 
-    await AgentManager.run(manager, "hello", history=[], chat_id="cli_chat", channel="cli")
+    await AgentManager.run(manager, "hello", history=[], chat_id="cli_chat", channel="cli", sender_id="user-123")
 
     usage_limits = captured["kwargs"]["usage_limits"]
     assert usage_limits.request_limit == settings.agent.request_limit
     assert usage_limits.tool_calls_limit is None
     assert captured["kwargs"]["message_history"] == []
     assert captured["kwargs"]["deps"].chat_id == "cli_chat"
+    assert captured["kwargs"]["deps"].sender_id == "user-123"
 
 
 @pytest.mark.asyncio
@@ -437,6 +439,7 @@ async def test_agent_manager_run_uses_recovery_agent_after_usage_limit():
     manager = AgentManager.__new__(AgentManager)
     manager.core_agent = SimpleNamespace(run=core_run)
     manager.request_limit_recovery_agent = SimpleNamespace(run=recovery_run)
+    manager.relational_memory_store = None
 
     result = await AgentManager.run(manager, "hello", history=[], chat_id="cli_chat", channel="cli")
 
@@ -457,6 +460,7 @@ async def test_agent_manager_run_returns_plain_fallback_if_recovery_agent_fails(
     manager = AgentManager.__new__(AgentManager)
     manager.core_agent = SimpleNamespace(run=core_run)
     manager.request_limit_recovery_agent = SimpleNamespace(run=recovery_run)
+    manager.relational_memory_store = None
 
     result = await AgentManager.run(manager, "hello", history=[], chat_id="cli_chat", channel="cli")
 

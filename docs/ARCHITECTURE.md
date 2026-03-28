@@ -9,6 +9,7 @@ The Core Agent (`src/agent/core.py`) is the primary interface for all incoming u
 *   **Intent Recognition:** It analyzes the user's message to determine if it can handle the request directly using its built-in tools (Bash, Filesystem) or if the task requires specialized expertise.
 *   **Guardrails:** Given its access to bash execution (`src/tools/bash.py`), it is configured to intercept hazardous commands (like `rm`, `sudo`) and explicitly request user permission before execution.
 *   **Memory Integration:** It maintains a persistent context of the conversation using SQLite (`state.db`). It retrieves history from one shared thread across CLI, Discord, and Cron, while preserving transport-specific routing metadata for outbound replies.
+*   **Relational Memory Capability:** When `NEO4J_*` env vars are configured, the Core Agent attaches a PydanticAI capability from `src/agent/relational_memory.py`. That capability injects relevant graph-memory context before model requests, exposes explicit relational-memory read/write tools, and auto-extracts durable facts after successful turns.
 *   **Model Configuration:** The agent now loads `SMART_MODEL` and `FAST_MODEL` directly from environment variables as native PydanticAI `provider:model` strings. Fergusson keeps a thin wrapper only for OpenAI and Google direct-provider strings so existing retry and Logfire instrumentation behavior is preserved.
 *   **Loop Protection:** The main conversational run is capped by request count using PydanticAI `UsageLimits(request_limit=10)` by default. This favors fast parallel tool use while stopping excessive guess-and-retry model loops.
 
@@ -47,15 +48,35 @@ Fergusson operates across multiple channels (CLI, Discord, Cron) via a centraliz
 
 **Implementation Notes:**
 *   Shared history configuration lives in `src/config.py` via `shared_history_thread_id`.
-*   Model selection also lives in `src/config.py` via env-backed `smart_model` and `fast_model`. `workspace/config/config.json` is now limited to non-model runtime config such as channels and MCP servers.
+*   Model selection also lives in `src/config.py` via env-backed `smart_model` and `fast_model`. Neo4j configuration lives there too via `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD`, and `NEO4J_DATABASE`. `workspace/config/config.json` is limited to non-model runtime config such as channels and MCP servers.
 *   The main runtime loop in `src/runners.py` resolves every inbound message to the shared thread before calling the agent and before triggering compaction.
 *   Stored rows in `src/db/models.py` continue to record the origin channel, and message metadata stores the original transport `chat_id` used for recent-chat lookup and channel replies.
+
+## 5. Relational Memory Layer
+Neo4j adds an optional structured long-term memory layer on top of the shared SQLite thread and `MEMORY.md`.
+
+**Data model:**
+*   `(:MemoryEntity)` stores durable subjects/objects such as the user, organizations, and named entities.
+*   `(:MemoryAssertion)` stores durable facts with provenance, confidence, and active/superseded status.
+*   `(:MemoryEntity)-[:ASSERTS]->(:MemoryAssertion)` links subjects to facts.
+*   `(:MemoryAssertion)-[:OBJECT]->(:MemoryEntity)` is used when the fact points to another entity instead of a scalar value.
+
+**Behavior:**
+*   The capability performs a lightweight memory lookup before model requests and injects a concise `# Relational Memory Context` block only when relevant matches exist.
+*   The model can explicitly call `search_relational_memory(...)` and `upsert_relational_memory(...)`.
+*   After a successful turn, a separate extractor agent running on the fast model may persist durable inferred facts.
+*   Conflicting facts are superseded rather than deleted, preserving provenance/history in Neo4j.
+*   Cron-originated turns can create relational memories when the source content is durable.
+
+**Operational notes:**
+*   Neo4j is fail-open. If connectivity verification fails, the assistant keeps working with SQLite history and `MEMORY.md`.
+*   The Neo4j driver is initialized lazily and closed from `main.py` during shutdown.
 
 ## Migration Note
 *   This repository now assumes a fresh or reset SQLite history is acceptable. Existing per-channel rows do not need to be migrated because durable preferences and critical facts belong in `MEMORY.md`.
 *   Model/provider aliases are no longer defined in `workspace/config/config.json`. Use native PydanticAI model strings like `openai:...`, `google-gla:...`, or `gateway/...` in `SMART_MODEL` and `FAST_MODEL` instead.
+*   Neo4j relational memory is additive. It complements the shared SQLite thread and `MEMORY.md`; it does not replace either one and it does not store full raw conversation history in v1.
 
-## 5. Future Expansions (Phase 5 & 6)
-*   **Graph Memory (Neo4j):** Transitioning from a shared SQLite thread to a semantic graph database to connect concepts, entities, and long-term facts across all conversations.
+## 6. Future Expansions (Phase 5 & 6)
 *   **`MEMORY.md` Scratchpad:** A local file where the agent can write down transient state or plans that survive across reboots.
 *   **`ROUTINE.md`:** Defining background tasks that the agent should evaluate periodically without explicit user prompts.

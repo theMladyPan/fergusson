@@ -27,6 +27,8 @@ async def main():
     )
     logfire.instrument_pydantic_ai()
 
+    manager = None
+
     with logfire.span("Starting Ferguson Agent") as span:
         # Initialize DB
         await init_db()
@@ -67,6 +69,8 @@ async def main():
         agent_task.cancel()
         routine_task.cancel()
         await asyncio.gather(agent_task, routine_task, return_exceptions=True)
+        if manager is not None:
+            await manager.aclose()
 
 
 if __name__ == "__main__":

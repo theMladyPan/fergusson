@@ -9,6 +9,7 @@ import logfire
 from httpx import AsyncClient, HTTPStatusError
 from jinja2 import Template
 from pydantic_ai import Agent, AgentRunResult, RunContext
+from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
 from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai import ModelRetry
@@ -21,6 +22,7 @@ from pydantic_ai.usage import UsageLimits
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from src.agent.memory import get_recent_delivery_destinations
+from src.agent.relational_memory import RelationalMemoryCapability, RelationalMemoryStore
 from src.agent.skills import SkillRegistry
 from src.broker.bus import MessageBus
 from src.config import settings
@@ -104,6 +106,7 @@ class AgentDeps:
     chat_id: str
     channel: str
     history_thread_id: str
+    sender_id: str | None = None
 
 
 class AgentManager:
@@ -141,6 +144,16 @@ class AgentManager:
 
         self.registry = SkillRegistry()
         self.registry.discover()
+        self.relational_memory_store: RelationalMemoryStore | None = None
+        capabilities: list[AbstractCapability[AgentDeps]] = []
+        if settings.neo4j.is_configured:
+            self.relational_memory_store = RelationalMemoryStore(settings.neo4j)
+            capabilities.append(
+                RelationalMemoryCapability(
+                    store=self.relational_memory_store,
+                    extraction_model=self.fast_model,
+                )
+            )
 
         system_prompt = self._build_system_prompt()
 
@@ -153,6 +166,7 @@ class AgentManager:
             tool_timeout=settings.agent.tool_timeout,
             retries=settings.agent.retries,
             tools=[duckduckgo_search_tool()],
+            capabilities=capabilities or None,
         )
 
         self.request_limit_recovery_agent = Agent(
@@ -238,7 +252,12 @@ class AgentManager:
                 return "\n".join(recent_chats)
 
     async def run(
-        self, user_input: str, history: list | None = None, chat_id: str = "cli", channel: str = "cli"
+        self,
+        user_input: str,
+        history: list | None = None,
+        chat_id: str = "cli",
+        channel: str = "cli",
+        sender_id: str | None = None,
     ) -> AgentRunResult:
         """Runs the core agent loop."""
 
@@ -246,6 +265,7 @@ class AgentManager:
             chat_id=chat_id,
             channel=channel,
             history_thread_id=settings.shared_history_thread_id,
+            sender_id=sender_id,
         )
 
         try:
@@ -281,3 +301,7 @@ class AgentManager:
                         "Please retry with a narrower follow-up."
                     )
                 )
+
+    async def aclose(self) -> None:
+        if self.relational_memory_store is not None:
+            await self.relational_memory_store.close()
