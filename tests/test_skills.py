@@ -392,6 +392,8 @@ Condense findings carefully.
     assert "Natural default wording" in prompt
     assert "Avoid admin/report voice for routine chat" in prompt
     assert "Memory mentions are usually implicit" in prompt
+    assert "user-specific personalization only" in prompt
+    assert "concrete operational identifiers" in prompt
     assert "## Skill: Researcher (`researcher`)" in prompt
     assert "Description: Search the web and summarize findings." in prompt
     assert "Allowed tools: get_content_from_url" in prompt

@@ -19,6 +19,7 @@ Fergusson is a modular AI assistant with an event-driven architecture:
 - `src/prompt/` — Jinja templates for system prompts (`core.md`, `archiver.md`) and extractor prompts (for example relational-memory extraction policy/examples).
   Prompt policy for memory is decision-oriented rather than hard imperative: the agent can choose whether to keep concise anchors in `MEMORY.md`, store detail in graph memory, and condense/relocate over-detailed `MEMORY.md` content into graph memory.
   Core communication policy should favor natural conversational phrasing by default (including Slovak when user speaks Slovak), avoid administrative/report-style confirmations for routine chat, and keep memory-save acknowledgments implicit unless explicit confirmation is needed.
+  `core.md` should remain user-agnostic operational policy; `workspace/PERSONALITY.md` is for subjective user personalization (name/style/channel intent), while concrete routing identifiers like channel IDs belong in `MEMORY.md`.
 - `workspace/skills/` — dynamic skills following the `SKILL.md` standard.
   Shared reusable skills should hold stable command patterns, while task-specific skills should reference them via `required_skills` instead of duplicating long command playbooks.
 - `docs/` — longer technical documentation of architecture and decisions.
