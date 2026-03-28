@@ -3,17 +3,20 @@ from typing import Optional
 from sqlalchemy import String, DateTime, Text, JSON
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+
 class Base(DeclarativeBase):
     pass
 
+
 class Message(Base):
-    """A simplified table for all conversations, grouped by chat_id (e.g., CLI, Discord thread)."""
+    """All persisted short-term history entries, grouped by the canonical history thread id."""
+
     __tablename__ = "messages"
-    
+
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    chat_id: Mapped[str] = mapped_column(String, index=True)  # To separate threads/channels
-    channel: Mapped[str] = mapped_column(String, default="unknown")  # e.g., 'discord', 'cli'
-    role: Mapped[str] = mapped_column(String)  # 'user', 'assistant'
+    chat_id: Mapped[str] = mapped_column(String, index=True)  # Canonical shared history thread id
+    channel: Mapped[str] = mapped_column(String, default="unknown")  # Origin channel, e.g. 'discord', 'cli'
+    role: Mapped[str] = mapped_column(String)  # 'system', 'user', 'assistant'
     content: Mapped[str] = mapped_column(Text)
     timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     metadata_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
@@ -21,12 +24,13 @@ class Message(Base):
 
 
 class Summary(Base):
-    """Table to store conversation summaries/condensates."""
+    """Compacted summaries for a canonical history thread."""
+
     __tablename__ = "summaries"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    chat_id: Mapped[str] = mapped_column(String, index=True)
+    chat_id: Mapped[str] = mapped_column(String, index=True)  # Canonical shared history thread id
     content: Mapped[str] = mapped_column(Text)
     timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     range_start_id: Mapped[Optional[int]] = mapped_column()  # ID of first message covered
-    range_end_id: Mapped[Optional[int]] = mapped_column()    # ID of last message covered
+    range_end_id: Mapped[Optional[int]] = mapped_column()  # ID of last message covered

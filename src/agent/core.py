@@ -13,13 +13,12 @@ from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.google import GoogleProvider
 from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.retries import AsyncTenacityTransport, RetryConfig, wait_retry_after
-from sqlalchemy.future import select
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential
 
+from src.agent.memory import get_recent_delivery_destinations
 from src.agent.skills import SkillRegistry
 from src.broker.bus import MessageBus
 from src.config import app_config, settings
-from src.db.models import Message
 from src.db.session import async_session
 from src.tools import all_tools
 
@@ -52,6 +51,7 @@ def create_retrying_client() -> AsyncClient:
 class AgentDeps:
     chat_id: str
     channel: str
+    history_thread_id: str
 
 
 class AgentManager:
@@ -154,7 +154,11 @@ class AgentManager:
 
         @self.core_agent.system_prompt
         def dynamic_context_prompt(ctx: RunContext[AgentDeps]) -> str:
-            return f"\n\nCURRENT CONTEXT:\nYou are currently operating in channel: '{ctx.deps.channel}' and chat_id: '{ctx.deps.chat_id}'."
+            return (
+                "\n\nCURRENT CONTEXT:\n"
+                f"You are currently operating in channel: '{ctx.deps.channel}' and chat_id: '{ctx.deps.chat_id}'. "
+                f"All channels share the same short-term history thread: '{ctx.deps.history_thread_id}'."
+            )
 
         for tool in all_tools:
             self.core_agent.tool_plain(tool)
@@ -192,29 +196,12 @@ class AgentManager:
         @self.core_agent.tool_plain
         async def get_recent_chats() -> str:
             """
-            Returns a list of recent chat_ids and their channels from the database history.
-            Use this to find the correct chat_id when you need to send a message to another channel.
+            Returns recent outbound destinations gathered from shared-history metadata.
+            Use this to find the correct channel/chat_id pair when you need to send a proactive message.
             """
 
             async with async_session() as session:
-                # Get distinct chat_ids and their recent usage
-                result = await session.execute(
-                    select(Message.chat_id, Message.channel, Message.timestamp)
-                    .order_by(Message.timestamp.desc())
-                    .limit(50)
-                )
-                messages = result.all()
-
-                # Deduplicate by chat_id, preserving the most recent timestamp
-                seen = set()
-                recent_chats = []
-                for msg in messages:
-                    if msg.chat_id not in seen:
-                        seen.add(msg.chat_id)
-                        recent_chats.append(
-                            f"Channel: {msg.channel}, Chat ID: {msg.chat_id}, Last Active: {msg.timestamp}"
-                        )
-
+                recent_chats = await get_recent_delivery_destinations(session)
                 if not recent_chats:
                     return "No recent chats found."
                 return "\n".join(recent_chats)
@@ -224,7 +211,11 @@ class AgentManager:
     ) -> AgentRunResult:
         """Runs the core agent loop."""
 
-        deps = AgentDeps(chat_id=chat_id, channel=channel)
+        deps = AgentDeps(
+            chat_id=chat_id,
+            channel=channel,
+            history_thread_id=settings.shared_history_thread_id,
+        )
 
         result = await self.core_agent.run(
             user_input,

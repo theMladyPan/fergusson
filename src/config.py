@@ -121,6 +121,14 @@ class Settings(BaseSettings):
         15,
         description="Maximum number of messages to keep in conversation history before compacting",
     )
+    shared_history_thread_id: str = Field(
+        "main",
+        description="Single shared short-term history thread used across all channels",
+    )
+    cron_messages_as_system: bool = Field(
+        True,
+        description="Store cron-originated inbound prompts as system-context entries in shared history",
+    )
     redis_host: str = "localhost"
     redis_port: int = 6379
     logfire_token: str | None = None

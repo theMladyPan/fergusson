@@ -7,7 +7,7 @@ import logfire
 
 from src.agent.archiver import Archiver
 from src.agent.core import AgentManager
-from src.agent.memory import add_message, check_and_compact, get_history
+from src.agent.memory import add_message, check_and_compact, get_history, get_inbound_history_role, get_shared_history_thread_id
 from src.broker.bus import MessageBus
 from src.broker.schemas import InboundMessage, MessageMetadata, OutboundMessage, TokenUsage
 from src.config import settings
@@ -25,8 +25,10 @@ async def agent_loop(bus: MessageBus, manager: AgentManager, archiver: Archiver)
             msg: InboundMessage = await bus.get_next_inbound()
             with logfire.span(f"Processing message from {msg.channel}/{msg.username}: {msg.content[:50]}...") as span:
                 async with async_session() as session:
+                    history_thread_id = get_shared_history_thread_id()
+
                     # 1. Retrieve history
-                    history = await get_history(session, msg.chat_id)
+                    history = await get_history(session, history_thread_id)
 
                     # --- PRIDANÁ LOGIKA: STT (Speech-to-Text) ---
                     # Skontroluj či v stiahnutých médiách z Discordu bola prípona odkazujúca na audio.
@@ -42,7 +44,20 @@ async def agent_loop(bus: MessageBus, manager: AgentManager, archiver: Archiver)
                     # --------------------------------------------
 
                     # 2. Add current user message to DB
-                    await add_message(session, msg.chat_id, msg.channel, "user", msg.content)
+                    inbound_role = get_inbound_history_role(msg.channel)
+                    await add_message(
+                        session,
+                        history_thread_id,
+                        msg.channel,
+                        inbound_role,
+                        msg.content,
+                        metadata={
+                            **(msg.metadata or {}),
+                            "transport_chat_id": msg.chat_id,
+                            "sender_id": msg.sender_id,
+                            "username": msg.username,
+                        },
+                    )
 
                     # 3. Run Agent
                     try:
@@ -52,7 +67,17 @@ async def agent_loop(bus: MessageBus, manager: AgentManager, archiver: Archiver)
                         )
 
                         # 4. Add assistant response to DB
-                        await add_message(session, msg.chat_id, msg.channel, "assistant", result.output)
+                        await add_message(
+                            session,
+                            history_thread_id,
+                            msg.channel,
+                            "assistant",
+                            result.output,
+                            metadata={
+                                "transport_chat_id": msg.chat_id,
+                                "reply_to": msg.metadata.get("message_id") if msg.metadata else None,
+                            },
+                        )
 
                         # --- PRIDANÁ LOGIKA: TTS (Text-to-Speech) ---
                         # Generujeme hlas iba vtedy, ak sme prijali otázku akoukoľvek hlasovkou
@@ -99,14 +124,14 @@ async def agent_loop(bus: MessageBus, manager: AgentManager, archiver: Archiver)
                         await bus.publish_outbound(reply)
 
                         # 6. Trigger background history compaction
-                        async def background_compaction(chat_id: str):
+                        async def background_compaction(shared_thread_id: str):
                             try:
                                 async with async_session() as comp_session:
-                                    await check_and_compact(comp_session, chat_id, archiver)
+                                    await check_and_compact(comp_session, shared_thread_id, archiver)
                             except Exception as e:
-                                logfire.error(f"Compaction error for {chat_id}: {e}")
+                                logfire.error(f"Compaction error for {shared_thread_id}: {e}")
 
-                        asyncio.create_task(background_compaction(msg.chat_id))
+                        asyncio.create_task(background_compaction(history_thread_id))
 
                         span.set_attributes(
                             {
@@ -114,6 +139,7 @@ async def agent_loop(bus: MessageBus, manager: AgentManager, archiver: Archiver)
                                 "channel": msg.channel,
                                 "reply_to": msg.metadata.get("message_id") if msg.metadata else None,
                                 "chat_id": msg.chat_id,
+                                "history_thread_id": history_thread_id,
                             }
                         )
 
