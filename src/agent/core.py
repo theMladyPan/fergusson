@@ -10,6 +10,7 @@ from jinja2 import Template
 from pydantic_ai import Agent, AgentRunResult, RunContext
 from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
 from pydantic_ai.exceptions import UsageLimitExceeded
+from pydantic_ai import ModelRetry
 from pydantic_ai.models.google import GoogleModel
 from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.google import GoogleProvider
@@ -195,7 +196,10 @@ class AgentManager:
             Use this when a skill from the catalog is relevant and you need its full workflow guidance.
             """
 
-            skill_details = self.registry.load_skill_details(skill_id)
+            try:
+                skill_details = self.registry.load_skill_details(skill_id)
+            except KeyError:
+                raise ModelRetry(self.registry.build_unknown_skill_message(skill_id))
             return (
                 "Authoritative skill guidance for the requested skill is loaded below. "
                 "Follow these instructions for the current task. Required skills listed below are hints only "

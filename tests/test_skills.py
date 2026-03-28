@@ -337,6 +337,11 @@ Drive instructions.
     with pytest.raises(KeyError, match="Unknown skill 'gws-gmai'.*Close matches: gws-gmail"):
         registry.load_skill_details("gws-gmai")
 
+    assert (
+        registry.build_unknown_skill_message("gws-gmai")
+        == "Unknown skill 'gws-gmai'. Available skills: gws-drive, gws-gmail. Close matches: gws-gmail."
+    )
+
 
 def test_agent_system_prompt_includes_skill_catalog_not_full_bodies(tmp_path: Path):
     _write_skill(

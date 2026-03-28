@@ -227,9 +227,14 @@ class SkillRegistry:
         """Return the full instructions for a single requested skill."""
 
         if skill_id not in self.skills:
-            available = sorted(self.skills)
-            suggestions = get_close_matches(skill_id, available, n=3)
-            suggestion_text = f" Close matches: {', '.join(suggestions)}." if suggestions else ""
-            raise KeyError(f"Unknown skill '{skill_id}'. Available skills: {', '.join(available)}.{suggestion_text}")
+            raise KeyError(self.build_unknown_skill_message(skill_id))
 
         return self._render_skill_detail_block(self.skills[skill_id])
+
+    def build_unknown_skill_message(self, skill_id: str) -> str:
+        """Return a concise, model-friendly error message for an unknown skill id."""
+
+        available = sorted(self.skills)
+        suggestions = get_close_matches(skill_id, available, n=3)
+        suggestion_text = f" Close matches: {', '.join(suggestions)}." if suggestions else ""
+        return f"Unknown skill '{skill_id}'. Available skills: {', '.join(available)}.{suggestion_text}"
