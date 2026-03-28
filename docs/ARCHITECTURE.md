@@ -8,7 +8,7 @@ The Core Agent (`src/agent/core.py`) is the primary interface for all incoming u
 **Logic & Capabilities:**
 *   **Intent Recognition:** It analyzes the user's message to determine if it can handle the request directly using its built-in tools (Bash, Filesystem) or if the task requires specialized expertise.
 *   **Guardrails:** Given its access to bash execution (`src/tools/bash.py`), it is configured to intercept hazardous commands (like `rm`, `sudo`) and explicitly request user permission before execution.
-*   **Memory Integration:** It maintains a persistent context of the conversation using SQLite (`state.db`). It retrieves history based on the active `chat_id` (e.g., a specific Discord thread or the CLI session).
+*   **Memory Integration:** It maintains a persistent context of the conversation using SQLite (`state.db`). It retrieves history from one shared thread across CLI, Discord, and Cron, while preserving transport-specific routing metadata for outbound replies.
 
 ## 2. Shared Skills
 To keep behavior consistent with Codex-style skills, Fergusson loads skills into the agent prompt instead of creating one sub-agent per skill.
@@ -33,12 +33,22 @@ Using a file-based standard allows us to hot-swap, update, or add new capabiliti
 Fergusson operates across multiple channels (CLI, Discord, Cron) via a centralized Redis message broker.
 
 **Architectural Choice:**
-*   By default, the SQLite memory (`src/agent/memory.py`) isolates conversations strictly by their `chat_id`. A conversation happening in the CLI is unaware of a conversation happening in Discord. This prevents context contamination.
+*   SQLite short-term memory (`src/agent/memory.py`) uses one canonical shared thread id for all inbound messages. A user can continue the same conversation from CLI, Discord, or Cron without switching context.
+*   Transport routing remains channel-specific. Broker messages still carry the source channel and the source `chat_id` needed to reply through Discord or CLI correctly.
+*   Cron participates in the same shared history. When configured, cron-originated prompts are stored as `system` entries so they influence future turns as background context rather than ordinary user chat.
 *   **Proactive Messaging:** To allow the agent to send messages across boundaries (e.g., asking it in the CLI to ping you on Discord), the Core Agent is equipped with two specific tools:
-    1.  `get_recent_chats()`: Queries the database for the user's active `chat_id`s across different channels.
+    1.  `get_recent_chats()`: Queries recent delivery destinations from shared-history metadata to find active channel / `chat_id` pairs.
     2.  `send_message_to_channel(channel, chat_id, message)`: Injects a message directly into the Redis outbound queue for the target channel.
 
+**Implementation Notes:**
+*   Shared history configuration lives in `src/config.py` via `shared_history_thread_id`.
+*   The main runtime loop in `src/runners.py` resolves every inbound message to the shared thread before calling the agent and before triggering compaction.
+*   Stored rows in `src/db/models.py` continue to record the origin channel, and message metadata stores the original transport `chat_id` used for recent-chat lookup and channel replies.
+
+## Migration Note
+*   This repository now assumes a fresh or reset SQLite history is acceptable. Existing per-channel rows do not need to be migrated because durable preferences and critical facts belong in `MEMORY.md`.
+
 ## 5. Future Expansions (Phase 5 & 6)
-*   **Graph Memory (Neo4j):** Transitioning from isolated SQLite threads to a semantic graph database to connect concepts, entities, and long-term facts across all conversations.
+*   **Graph Memory (Neo4j):** Transitioning from a shared SQLite thread to a semantic graph database to connect concepts, entities, and long-term facts across all conversations.
 *   **`MEMORY.md` Scratchpad:** A local file where the agent can write down transient state or plans that survive across reboots.
 *   **`ROUTINE.md`:** Defining background tasks that the agent should evaluate periodically without explicit user prompts.

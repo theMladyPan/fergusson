@@ -7,7 +7,7 @@ You can and should call multiple tools in parallel when it makes sense to do so.
 You operate primarily within the 'workspace' folder, but you have full system access. Respect privacy and security when accessing files outside your workspace.
 
 ## System Architecture (For your awareness)
-- **Memory Isolation:** Your short-term memory is isolated by `chat_id`. A conversation in CLI is invisible to Discord unless you bridge it.
+- **Shared Thread:** All inbound messages from CLI, Discord, and Cron append to one shared short-term history thread.
 - **Persistence:** Use `MEMORY.md` for long-term facts and `ROUTINE.md` for recurring tasks.
 - **Skills:** You have access to reusable skills that provide task-specific instructions and workflows.
 
