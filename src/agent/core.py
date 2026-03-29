@@ -151,7 +151,6 @@ class AgentManager:
             capabilities.append(
                 RelationalMemoryCapability(
                     store=self.relational_memory_store,
-                    extraction_model=self.fast_model,
                 )
             )
 

@@ -3,20 +3,15 @@ import json
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 import logfire
-from jinja2 import Template
-from pydantic import BaseModel, Field
 from pydantic import SecretStr
-from pydantic_ai import Agent
 from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.embeddings import Embedder
 from pydantic_ai.messages import ModelRequest, SystemPromptPart, UserPromptPart
 from pydantic_ai.models import ModelRequestContext
-from pydantic_ai.run import AgentRunResult
 from pydantic_ai.tools import RunContext
 from pydantic_ai.toolsets import FunctionToolset
 
@@ -98,13 +93,6 @@ def _extract_latest_user_text(messages: list) -> str:
     return ""
 
 
-def _extractor_instructions() -> str:
-    template_path = Path(__file__).parents[1] / "prompt" / "relational_memory_extractor.md"
-    with open(template_path, "r", encoding="utf-8") as f:
-        template = Template(f.read())
-    return template.render(current_date=datetime.now().strftime("%B %d, %Y"))
-
-
 def _neo4j_record_to_dict(record: Any) -> dict[str, Any]:
     if record is None:
         return {}
@@ -147,53 +135,6 @@ class PydanticAIEmbedderAdapter:
     async def embed_batch(self, texts: list[str]) -> list[list[float]]:
         result = await self._embedder.embed_documents(texts)
         return result.embeddings
-
-
-class RelationalMemoryFactItem(BaseModel):
-    subject: str
-    predicate: str
-    object_value: str
-    confidence: float = Field(default=0.9, ge=0.0, le=1.0)
-    correction: bool = False
-    source_note: str | None = None
-
-
-class RelationalMemoryPreferenceItem(BaseModel):
-    category: str
-    preference: str
-    context: str | None = None
-    confidence: float = Field(default=0.9, ge=0.0, le=1.0)
-    source_note: str | None = None
-
-
-class RelationalMemoryEntityItem(BaseModel):
-    name: str
-    entity_type: str = "OBJECT"
-    subtype: str | None = None
-    description: str | None = None
-    confidence: float = Field(default=0.9, ge=0.0, le=1.0)
-    source_note: str | None = None
-
-
-class RelationalMemoryRelationItem(BaseModel):
-    source_name: str
-    relation_type: str
-    target_name: str
-    source_entity_type: str | None = None
-    source_subtype: str | None = None
-    target_entity_type: str | None = None
-    target_subtype: str | None = None
-    description: str | None = None
-    confidence: float = Field(default=0.9, ge=0.0, le=1.0)
-    correction: bool = False
-    source_note: str | None = None
-
-
-class RelationalMemoryBatch(BaseModel):
-    facts: list[RelationalMemoryFactItem] = Field(default_factory=list)
-    preferences: list[RelationalMemoryPreferenceItem] = Field(default_factory=list)
-    entities: list[RelationalMemoryEntityItem] = Field(default_factory=list)
-    relations: list[RelationalMemoryRelationItem] = Field(default_factory=list)
 
 
 class RelationalMemoryStore:
@@ -505,38 +446,6 @@ class RelationalMemoryStore:
             )
         return rows
 
-    async def _get_relation_rows_for_source(self, *, source_name: str, relation_type: str, limit: int) -> list[dict[str, Any]]:
-        assert self._memory_client is not None
-        results = await self._memory_client.graph.execute_read(
-            """
-            MATCH (source:Entity)-[r:RELATED_TO {type: $relation_type}]->(target:Entity)
-            WHERE (
-                toLower(source.name) = $source_name
-                OR toLower(coalesce(source.canonical_name, '')) = $source_name
-            )
-              AND r[$valid_until_key] IS NULL
-            RETURN source, r, target
-            ORDER BY coalesce(r.updated_at, r.created_at) DESC
-            LIMIT $limit
-            """,
-            {
-                "source_name": _normalize_entity_name(source_name),
-                "relation_type": relation_type,
-                "limit": limit,
-                "valid_until_key": _REL_VALID_UNTIL_KEY,
-            },
-        )
-        rows: list[dict[str, Any]] = []
-        for row in results:
-            rows.append(
-                {
-                    "source": _neo4j_record_to_dict(row["source"]),
-                    "target": _neo4j_record_to_dict(row["target"]),
-                    "relationship": _neo4j_rel_to_dict(row["r"]),
-                }
-            )
-        return rows
-
     async def store_fact(
         self,
         *,
@@ -783,111 +692,6 @@ class RelationalMemoryStore:
             return f"Stored corrected relation and closed {closed_count} conflicting relation(s)."
         return "Stored relation."
 
-    async def find_similar_memory(self, *, subject: str, predicate: str, object_value: str, limit: int = 6) -> str:
-        if not await self.ensure_available() or self._memory_client is None:
-            return "Relational memory is unavailable."
-
-        normalized_subject = _normalize_subject(subject)
-        normalized_predicate = _normalize_predicate(predicate)
-        exact = await self._memory_client.long_term.get_facts_about(normalized_subject, limit=200)
-        exact_matches = [
-            f for f in exact if _normalize_predicate(f.predicate) == normalized_predicate
-        ]
-        semantic = await self._memory_client.long_term.search_facts(
-            f"{normalized_subject} {normalized_predicate} {object_value}",
-            limit=limit,
-            threshold=0.6,
-        )
-        lines: list[str] = []
-        for fact in exact_matches[:limit]:
-            lines.append(f"- [exact] {fact.subject} -> {fact.predicate} -> {fact.object}")
-        for fact in semantic:
-            marker = "related"
-            if _normalize_text(fact.object) == _normalize_text(object_value):
-                marker = "exact"
-            similarity = fact.metadata.get("similarity")
-            if similarity is None:
-                lines.append(f"- [{marker}] {fact.subject} -> {fact.predicate} -> {fact.object}")
-            else:
-                lines.append(
-                    f"- [{marker}] {fact.subject} -> {fact.predicate} -> {fact.object} [similarity: {float(similarity):.2f}]"
-                )
-        if not lines:
-            return "No similar memory found."
-        return "\n".join(dict.fromkeys(lines))
-
-    async def find_similar_entity(
-        self,
-        *,
-        name: str,
-        entity_type: str | None = None,
-        limit: int = 6,
-    ) -> str:
-        if not await self.ensure_available() or self._memory_client is None:
-            return "Relational memory is unavailable."
-
-        normalized_type = _normalize_entity_label(entity_type) if entity_type else None
-        exact = await self._get_entity_row_by_name(name=name, entity_type=normalized_type)
-        semantic = await self._memory_client.long_term.search_entities(
-            name,
-            entity_types=[normalized_type] if normalized_type else None,
-            limit=limit,
-            threshold=0.6,
-        )
-
-        lines: list[str] = []
-        if exact is not None:
-            lines.append(
-                f"- [exact] {_entity_display_name(exact)} ({exact.get('type')}{':' + exact['subtype'] if exact.get('subtype') else ''})"
-            )
-        for entity in semantic:
-            marker = "related"
-            if _normalize_entity_name(entity.display_name) == _normalize_entity_name(name):
-                marker = "exact"
-            similarity = entity.metadata.get("similarity")
-            type_str = entity.full_type
-            if similarity is None:
-                lines.append(f"- [{marker}] {entity.display_name} ({type_str})")
-            else:
-                lines.append(f"- [{marker}] {entity.display_name} ({type_str}) [similarity: {float(similarity):.2f}]")
-        if not lines:
-            return "No similar entity found."
-        return "\n".join(dict.fromkeys(lines))
-
-    async def find_similar_relation(
-        self,
-        *,
-        source_name: str,
-        relation_type: str,
-        target_name: str,
-        limit: int = 6,
-    ) -> str:
-        if not await self.ensure_available() or self._memory_client is None:
-            return "Relational memory is unavailable."
-
-        normalized_relation_type = _normalize_relation_type(relation_type)
-        rows = await self._get_relation_rows_for_source(
-            source_name=source_name,
-            relation_type=normalized_relation_type,
-            limit=limit,
-        )
-        lines: list[str] = []
-        normalized_target_name = _normalize_entity_name(target_name)
-        for row in rows:
-            source = row["source"]
-            target = row["target"]
-            relationship = row["relationship"]
-            marker = "related"
-            if _normalize_entity_name(_entity_display_name(target)) == normalized_target_name:
-                marker = "exact"
-            line = f"- [{marker}] {_entity_display_name(source)} -[{relationship.get('type', normalized_relation_type)}]-> {_entity_display_name(target)}"
-            if relationship.get("description"):
-                line += f": {relationship['description']}"
-            lines.append(line)
-        if not lines:
-            return "No similar relation found."
-        return "\n".join(dict.fromkeys(lines))
-
     async def _build_memory_context(
         self,
         *,
@@ -1021,14 +825,10 @@ class RelationalMemoryStore:
 @dataclass
 class RelationalMemoryCapability(AbstractCapability):
     store: RelationalMemoryStore
-    extraction_model: object
     _toolset: FunctionToolset = field(init=False, repr=False)
-    _extractor_toolset: FunctionToolset = field(init=False, repr=False)
-    _extractor: Agent = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         self._toolset = FunctionToolset(id="relational-memory")
-        self._extractor_toolset = FunctionToolset(id="relational-memory-extractor")
 
         @self._toolset.tool
         async def search_memory(ctx: RunContext, query: str, memory_types: list[str] | None = None, limit: int = 8) -> str:
@@ -1150,60 +950,6 @@ class RelationalMemoryCapability(AbstractCapability):
                 source_note=note,
             )
 
-        @self._extractor_toolset.tool
-        async def find_similar_memory(
-            ctx: RunContext,
-            subject: str,
-            predicate: str,
-            object_value: str,
-            limit: int = 6,
-        ) -> str:
-            """Find exact and semantically similar facts before deciding whether to store a candidate memory."""
-            del ctx
-            return await self.store.find_similar_memory(
-                subject=subject,
-                predicate=predicate,
-                object_value=object_value,
-                limit=limit,
-            )
-
-        @self._extractor_toolset.tool
-        async def find_similar_entity(
-            ctx: RunContext,
-            name: str,
-            entity_type: str | None = None,
-            limit: int = 6,
-        ) -> str:
-            """Find exact and semantically similar entities before deciding whether to store a candidate entity."""
-            del ctx
-            return await self.store.find_similar_entity(name=name, entity_type=entity_type, limit=limit)
-
-        @self._extractor_toolset.tool
-        async def find_similar_relation(
-            ctx: RunContext,
-            source_name: str,
-            relation_type: str,
-            target_name: str,
-            limit: int = 6,
-        ) -> str:
-            """Find exact and related existing relations before deciding whether to store a candidate relationship."""
-            del ctx
-            return await self.store.find_similar_relation(
-                source_name=source_name,
-                relation_type=relation_type,
-                target_name=target_name,
-                limit=limit,
-            )
-
-        self._extractor = Agent(
-            model=self.extraction_model,
-            output_type=RelationalMemoryBatch,
-            name="RelationalMemoryExtractor",
-            defer_model_check=True,
-            instructions=_extractor_instructions(),
-            toolsets=[self._extractor_toolset],
-        )
-
     def get_instructions(self):
         return (
             "You also have graph memory stored in Neo4j.\n"
@@ -1241,117 +987,3 @@ class RelationalMemoryCapability(AbstractCapability):
             ModelRequest(parts=[SystemPromptPart(content=f"# Graph Memory Context\n{memory_context}")]),
         )
         return request_context
-
-    async def after_run(
-        self,
-        ctx: RunContext,
-        *,
-        result: AgentRunResult,
-    ) -> AgentRunResult:
-        if not await self.store.ensure_available():
-            return result
-
-        if not isinstance(result.output, str):
-            return result
-
-        user_text = _extract_latest_user_text(result.new_messages())
-        assistant_text = result.output.strip()
-        if not user_text or not assistant_text:
-            return result
-
-        existing_memory_context = await self.store.get_memory_context(user_text, max_items=8)
-
-        try:
-            extraction = await self._extractor.run(
-                (
-                    f"Channel: {ctx.deps.channel}\n"
-                    f"Sender ID: {getattr(ctx.deps, 'sender_id', 'unknown')}\n"
-                    f"Existing memory context:\n{existing_memory_context}\n\n"
-                    f"User message:\n{user_text}\n\n"
-                    f"Assistant reply:\n{assistant_text}\n"
-                )
-            )
-        except Exception as exc:
-            logfire.warning("Graph memory extraction failed", error=str(exc))
-            return result
-
-        source_kind = "system" if getattr(ctx.deps, "sender_id", None) == "system_cron" else "user"
-        source_ref = f"{ctx.run_id}:{ctx.deps.channel}:{ctx.deps.chat_id}"
-
-        for fact in extraction.output.facts:
-            if fact.confidence < 0.5:
-                continue
-            try:
-                await self.store.store_fact(
-                    subject=fact.subject,
-                    predicate=fact.predicate,
-                    object_value=fact.object_value,
-                    confidence=fact.confidence,
-                    correction=fact.correction,
-                    source_kind=source_kind,
-                    source_channel=ctx.deps.channel,
-                    source_ref=source_ref,
-                    source_note=fact.source_note,
-                )
-            except Exception as exc:
-                logfire.warning("Failed to persist extracted graph-memory fact", error=str(exc))
-
-        for preference in extraction.output.preferences:
-            if preference.confidence < 0.5:
-                continue
-            try:
-                await self.store.store_preference(
-                    category=preference.category,
-                    preference=preference.preference,
-                    context=preference.context,
-                    confidence=preference.confidence,
-                    source_kind=source_kind,
-                    source_channel=ctx.deps.channel,
-                    source_ref=source_ref,
-                    source_note=preference.source_note,
-                )
-            except Exception as exc:
-                logfire.warning("Failed to persist extracted graph-memory preference", error=str(exc))
-
-        for entity in extraction.output.entities:
-            if entity.confidence < 0.5:
-                continue
-            try:
-                await self.store.store_entity(
-                    name=entity.name,
-                    entity_type=entity.entity_type,
-                    subtype=entity.subtype,
-                    description=entity.description,
-                    confidence=entity.confidence,
-                    source_kind=source_kind,
-                    source_channel=ctx.deps.channel,
-                    source_ref=source_ref,
-                    source_note=entity.source_note,
-                )
-            except Exception as exc:
-                logfire.warning("Failed to persist extracted graph-memory entity", error=str(exc))
-
-        for relation in extraction.output.relations:
-            if relation.confidence < 0.5:
-                continue
-            try:
-                await self.store.store_relation(
-                    source_name=relation.source_name,
-                    relation_type=relation.relation_type,
-                    target_name=relation.target_name,
-                    source_entity_type=relation.source_entity_type,
-                    source_subtype=relation.source_subtype,
-                    target_entity_type=relation.target_entity_type,
-                    target_subtype=relation.target_subtype,
-                    description=relation.description,
-                    confidence=relation.confidence,
-                    correction=relation.correction,
-                    source_kind=source_kind,
-                    source_channel=ctx.deps.channel,
-                    source_ref=source_ref,
-                    source_note=relation.source_note,
-                )
-            except Exception as exc:
-                logfire.warning("Failed to persist extracted graph-memory relation", error=str(exc))
-
-        return result

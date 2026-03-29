@@ -7,8 +7,8 @@ Fergusson is a modular AI assistant with an event-driven architecture:
 - **channels** (CLI, Discord, future inputs) receive messages,
 - the **broker** (Redis) distributes them,
 - the **core agent** applies native tools and reusable skills directly,
-- **memory** is layered: one shared SQLite thread for recent conversation, optional Neo4j graph memory for durable structured facts/preferences/entities/relations, and `MEMORY.md` for human-readable long-term notes. Prompt guidance uses tiered memory placement: high-signal anchor facts in `MEMORY.md`, richer structured detail in graph memory, with compact graph-detail references in `MEMORY.md` when relevant. Graph memory is backed by `neo4j-agent-memory` with semantic/exact duplicate suppression and extractor prompt rules with do/don't examples. Outbound delivery remains channel-specific.
-  Memory extraction policy prefers `store_preference` for tastes/interests/favorites, keeps first-person user facts canonicalized as `subject="user"`, and uses entity `user` plus graph relations when durable meaning depends on named entities.
+- **memory** is layered: one shared SQLite thread for recent conversation, optional Neo4j graph memory for durable structured facts/preferences/entities/relations, and `MEMORY.md` for human-readable long-term notes. Prompt guidance uses tiered memory placement: high-signal anchor facts in `MEMORY.md`, richer structured detail in graph memory, with compact graph-detail references in `MEMORY.md` when relevant. Graph memory is backed by `neo4j-agent-memory` with semantic/exact duplicate suppression. Outbound delivery remains channel-specific.
+  Graph-memory creation is explicit via core-agent memory tools; there is no separate post-turn extractor agent.
 
 ## 2) Architecture by Directory
 - `src/agent/` — agent core, orchestration, shared-thread memory, Neo4j graph-memory capability, skill loading, archiver. Graph memory uses `neo4j-agent-memory` (long-term facts/preferences/entities/relations), library-style tools (`search_memory`, `get_memory_context`, `store_fact`, `store_preference`, `store_entity`, `store_relation`), custom long-term context assembly for facts + preferences + entities + relationships, semantic dedup for facts/entities, exact dedup for relations, and temporal correction handling (`correction=true` closes previous conflicting facts or relations by setting `valid_until`). Skill loading now returns one requested skill at a time; prerequisites are metadata hints that the agent must load explicitly.
@@ -17,7 +17,7 @@ Fergusson is a modular AI assistant with an event-driven architecture:
 - `src/config.py` — environment-backed runtime settings; model selection uses `SMART_MODEL` / `FAST_MODEL` as PydanticAI `provider:model` strings, Neo4j uses `NEO4J_*` env vars, and memory settings are grouped under `Settings.memory` (`MemoryConfig`) with nested `Settings.memory.embedding` (`EmbeddingConfig`). Memory envs are resolved directly by nested settings classes (for example `MEMORY_EMBEDDING_PROVIDER`). `workspace/config/config.json` remains for non-model app config.
 - `src/tools/` — tools invoked by the agent (bash, filesystem, web).
 - `src/db/` — DB models and session layer for state persistence.
-- `src/prompt/` — Jinja templates for system prompts (`core.md`, `archiver.md`) and extractor prompts (for example relational-memory extraction policy/examples).
+- `src/prompt/` — Jinja templates for system prompts (`core.md`, `archiver.md`).
   Prompt policy for memory is decision-oriented rather than hard imperative: the agent can choose whether to keep concise anchors in `MEMORY.md`, store detail in graph memory, and condense/relocate over-detailed `MEMORY.md` content into graph memory.
   Core communication policy should favor natural conversational phrasing by default (including Slovak when user speaks Slovak), avoid administrative/report-style confirmations for routine chat, and keep memory-save acknowledgments implicit unless explicit confirmation is needed.
   `core.md` should remain user-agnostic operational policy; `workspace/PERSONALITY.md` is for subjective user personalization (name/style/channel intent), while concrete routing identifiers like channel IDs belong in `MEMORY.md`.
@@ -59,9 +59,9 @@ Before handing off the implementation, check:
 - Model selection no longer comes from `workspace/config/config.json`. New work should use env variables `SMART_MODEL` and `FAST_MODEL` with native PydanticAI `provider:model` strings.
 - Skill registries no longer auto-bundle prerequisite skill bodies. If a skill lists `required_skills`, the agent must call `load_skill_details` separately for each prerequisite it needs.
 - Runtime loop protection now uses a request-count cap (`request_limit`) on the main conversational agent instead of tool-call or token caps by default.
-- Neo4j graph memory is optional. When `NEO4J_URI`, `NEO4J_USER`, and `NEO4J_PASSWORD` are present, the core agent attaches a PydanticAI capability that injects relevant graph-memory context, exposes memory read/write tools, auto-extracts durable facts/preferences/entities/relations after successful turns, and suppresses duplicate writes with exact + semantic checks.
+- Neo4j graph memory is optional. When `NEO4J_URI`, `NEO4J_USER`, and `NEO4J_PASSWORD` are present, the core agent attaches a PydanticAI capability that injects relevant graph-memory context, exposes memory read/write tools, and suppresses duplicate writes with exact + semantic checks.
 - Memory embeddings use PydanticAI embedder models configured via env (`MEMORY_EMBEDDING_PROVIDER`, `MEMORY_EMBEDDING_MODEL`, `MEMORY_EMBEDDING_DIMENSIONS`). Current default is Google Gemini embeddings (`google-gla:gemini-embedding-001`).
-- Extraction quality is controlled primarily via extractor prompt rules and examples; code-level policy focuses on storage integrity (dedup, correction, provenance), not a hardcoded predicate whitelist.
+- Memory quality is controlled by explicit tool usage policy plus storage integrity checks (dedup, correction, provenance), not a hardcoded predicate whitelist.
 
 
 ## ExecPlans

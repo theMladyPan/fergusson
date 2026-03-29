@@ -7,16 +7,7 @@ from pydantic_ai.messages import ModelRequest, SystemPromptPart, UserPromptPart
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.agent.relational_memory import (  # noqa: E402
-    RelationalMemoryBatch,
-    RelationalMemoryCapability,
-    RelationalMemoryEntityItem,
-    RelationalMemoryFactItem,
-    RelationalMemoryPreferenceItem,
-    RelationalMemoryRelationItem,
-    _extractor_instructions,
-    _normalize_predicate,
-)
+from src.agent.relational_memory import RelationalMemoryCapability, _normalize_predicate  # noqa: E402
 
 
 class _FakeStore:
@@ -28,9 +19,6 @@ class _FakeStore:
         self.preference_calls = []
         self.entity_calls = []
         self.relation_calls = []
-        self.similar_calls = []
-        self.similar_entity_calls = []
-        self.similar_relation_calls = []
 
     async def ensure_available(self):
         return True
@@ -59,33 +47,11 @@ class _FakeStore:
         self.relation_calls.append(kwargs)
         return "Stored relation."
 
-    async def find_similar_memory(self, **kwargs):
-        self.similar_calls.append(kwargs)
-        return "No similar memory found."
-
-    async def find_similar_entity(self, **kwargs):
-        self.similar_entity_calls.append(kwargs)
-        return "No similar entity found."
-
-    async def find_similar_relation(self, **kwargs):
-        self.similar_relation_calls.append(kwargs)
-        return "No similar relation found."
-
-
-class _FakeExtractor:
-    def __init__(self, output):
-        self.output = output
-        self.prompts = []
-
-    async def run(self, prompt: str):
-        self.prompts.append(prompt)
-        return SimpleNamespace(output=self.output)
-
 
 @pytest.mark.asyncio
 async def test_before_model_request_injects_graph_memory_context():
     store = _FakeStore(context_response="### Preferences\n- [communication] Prefers concise responses")
-    capability = RelationalMemoryCapability(store=store, extraction_model="test")
+    capability = RelationalMemoryCapability(store=store)
     request_context = SimpleNamespace(
         messages=[
             ModelRequest(parts=[UserPromptPart(content="Remember that I prefer concise answers.")]),
@@ -103,100 +69,8 @@ async def test_before_model_request_injects_graph_memory_context():
     assert store.context_calls == [("How should you answer me?", 6)]
 
 
-@pytest.mark.asyncio
-async def test_after_run_persists_extracted_fact_preference_entity_and_relation():
-    store = _FakeStore(context_response="### Facts\n- user -> preferred_editor -> Neovim")
-    capability = RelationalMemoryCapability(store=store, extraction_model="test")
-    capability._extractor = _FakeExtractor(
-        RelationalMemoryBatch(
-            facts=[
-                RelationalMemoryFactItem(
-                    subject="user",
-                    predicate="preferred_editor",
-                    object_value="Neovim",
-                    correction=True,
-                    confidence=0.95,
-                )
-            ],
-            preferences=[
-                RelationalMemoryPreferenceItem(
-                    category="communication",
-                    preference="Prefers concise responses",
-                    confidence=0.9,
-                )
-            ],
-            entities=[
-                RelationalMemoryEntityItem(
-                    name="Acme",
-                    entity_type="ORGANIZATION",
-                    confidence=0.88,
-                )
-            ],
-            relations=[
-                RelationalMemoryRelationItem(
-                    source_name="user",
-                    relation_type="WORKS_AT",
-                    target_name="Acme",
-                    source_entity_type="PERSON",
-                    target_entity_type="ORGANIZATION",
-                    confidence=0.92,
-                )
-            ],
-        )
-    )
-    ctx = SimpleNamespace(deps=SimpleNamespace(channel="cli", chat_id="cli_chat", sender_id="user-1"), run_id="run-1")
-    result = SimpleNamespace(
-        output="Noted.",
-        new_messages=lambda: [ModelRequest(parts=[UserPromptPart(content="I switched to Neovim, prefer concise answers, and work at Acme.")])],
-    )
-
-    await capability.after_run(ctx, result=result)
-
-    assert len(store.fact_calls) == 1
-    assert store.fact_calls[0]["correction"] is True
-    assert len(store.preference_calls) == 1
-    assert len(store.entity_calls) == 1
-    assert store.entity_calls[0]["entity_type"] == "ORGANIZATION"
-    assert len(store.relation_calls) == 1
-    assert store.relation_calls[0]["relation_type"] == "WORKS_AT"
-    assert "Existing memory context:" in capability._extractor.prompts[0]
-
-
-@pytest.mark.asyncio
-async def test_after_run_skips_low_confidence_items_for_all_memory_types():
-    store = _FakeStore()
-    capability = RelationalMemoryCapability(store=store, extraction_model="test")
-    capability._extractor = _FakeExtractor(
-        RelationalMemoryBatch(
-            facts=[RelationalMemoryFactItem(subject="user", predicate="pet", object_value="dog", confidence=0.2)],
-            preferences=[RelationalMemoryPreferenceItem(category="food", preference="likes pizza", confidence=0.1)],
-            entities=[RelationalMemoryEntityItem(name="Acme", entity_type="ORGANIZATION", confidence=0.3)],
-            relations=[
-                RelationalMemoryRelationItem(
-                    source_name="user",
-                    relation_type="WORKS_AT",
-                    target_name="Acme",
-                    confidence=0.4,
-                )
-            ],
-        )
-    )
-    ctx = SimpleNamespace(deps=SimpleNamespace(channel="cli", chat_id="cli_chat", sender_id="user-1"), run_id="run-1")
-    result = SimpleNamespace(
-        output="ok",
-        new_messages=lambda: [ModelRequest(parts=[UserPromptPart(content="small talk")])],
-    )
-
-    await capability.after_run(ctx, result=result)
-
-    assert store.fact_calls == []
-    assert store.preference_calls == []
-    assert store.entity_calls == []
-    assert store.relation_calls == []
-
-
 def test_capability_instructions_include_entity_and_relation_tools():
-    capability = RelationalMemoryCapability(store=_FakeStore(), extraction_model="test")
+    capability = RelationalMemoryCapability(store=_FakeStore())
     text = capability.get_instructions()
     assert "search_memory" in text
     assert "store_fact" in text
@@ -205,17 +79,7 @@ def test_capability_instructions_include_entity_and_relation_tools():
     assert "store_relation" in text
     assert "facts, preferences, entities, and relations" in text
     assert "correction=true" in text
-
-
-def test_extractor_instructions_include_entity_and_relation_contract():
-    text = _extractor_instructions()
-    assert "find_similar_memory" in text
-    assert "find_similar_entity" in text
-    assert "find_similar_relation" in text
-    assert "exactly four lists" in text
-    assert "source_name" in text
-    assert "entity_type" in text
-    assert "I work at Acme" in text
+    assert "Duplicate storage is avoided" in text
 
 
 def test_normalize_predicate_collapses_spaces_and_punctuation():

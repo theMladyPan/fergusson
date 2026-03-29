@@ -9,7 +9,7 @@ The Core Agent (`src/agent/core.py`) is the primary interface for all incoming u
 *   **Intent Recognition:** It analyzes the user's message to determine if it can handle the request directly using its built-in tools (Bash, Filesystem) or if the task requires specialized expertise.
 *   **Guardrails:** Given its access to bash execution (`src/tools/bash.py`), it is configured to intercept hazardous commands (like `rm`, `sudo`) and explicitly request user permission before execution.
 *   **Memory Integration:** It maintains a persistent context of the conversation using SQLite (`state.db`). It retrieves history from one shared thread across CLI, Discord, and Cron, while preserving transport-specific routing metadata for outbound replies.
-*   **Relational Memory Capability:** When `NEO4J_*` env vars are configured, the Core Agent attaches a PydanticAI capability from `src/agent/relational_memory.py`. That capability injects relevant graph-memory context before model requests, exposes explicit relational-memory read/write tools, and auto-extracts durable facts, preferences, entities, and relations after successful turns.
+*   **Relational Memory Capability:** When `NEO4J_*` env vars are configured, the Core Agent attaches a PydanticAI capability from `src/agent/relational_memory.py`. That capability injects relevant graph-memory context before model requests and exposes explicit relational-memory read/write tools for durable facts, preferences, entities, and relations.
 *   **Model Configuration:** The agent now loads `SMART_MODEL` and `FAST_MODEL` directly from environment variables as native PydanticAI `provider:model` strings. Fergusson keeps a thin wrapper only for OpenAI and Google direct-provider strings so existing retry and Logfire instrumentation behavior is preserved.
 *   **Loop Protection:** The main conversational run is capped by request count using PydanticAI `UsageLimits(request_limit=10)` by default. This favors fast parallel tool use while stopping excessive guess-and-retry model loops.
 
@@ -66,8 +66,7 @@ Neo4j adds an optional structured long-term memory layer on top of the shared SQ
 *   Duplicate suppression happens before writes with exact normalized triple checks plus semantic similarity checks for facts, exact + semantic checks for entities, and exact active-edge checks for relations.
 *   On corrections (`store_fact(..., correction=true)`), existing open-ended conflicting facts for the same subject+predicate are temporally closed (`valid_until=now`) before writing the new fact.
 *   On corrections (`store_relation(..., correction=true)`), existing open-ended conflicting relations for the same source entity + relation type are temporally closed before writing the new target edge.
-*   After a successful turn, a separate extractor agent running on the fast model may persist durable inferred facts/preferences/entities/relations. Extraction behavior is guided by a Jinja prompt template under `src/prompt/` with explicit do/don't examples.
-*   The extractor calls similarity tools (`find_similar_memory`, `find_similar_entity`, `find_similar_relation`) before emitting each candidate memory.
+*   Memory creation is explicit: the core agent writes graph memory only via `store_fact`, `store_preference`, `store_entity`, and `store_relation` tool calls.
 *   Cron-originated turns can create relational memories when the source content is durable.
 
 **Operational notes:**
