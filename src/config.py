@@ -100,20 +100,65 @@ class Neo4jConfig(BaseSettings):
         return bool(self.enabled and self.uri and self.user and self.password)
 
 
+class EmbeddingConfig(BaseSettings):
+    provider: str = Field(
+        "google-gla",
+        description="Embedding provider for graph memory (e.g. google-gla, google-vertex)",
+    )
+    model: str = Field(
+        "gemini-embedding-001",
+        description="Embedding model name for graph memory",
+    )
+    dimensions: int = Field(
+        1536,
+        description="Embedding vector dimensions used by graph-memory indexes",
+    )
+    model_config = SettingsConfigDict(
+        env_prefix="MEMORY_EMBEDDING_",
+        env_file=".env",
+        extra="ignore",
+    )
+
+
+class MemoryConfig(BaseSettings):
+    embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
+    fact_dedup_threshold: float = Field(
+        0.85,
+        validation_alias="MEMORY_FACT_DEDUP_THRESHOLD",
+        description="Similarity threshold for semantic fact deduplication",
+    )
+    shared_history_thread_id: str = Field(
+        "main",
+        validation_alias="SHARED_HISTORY_THREAD_ID",
+        description="Single shared short-term history thread used across all channels",
+    )
+    max_conversation_history_len: int = Field(
+        15,
+        validation_alias="MAX_CONVERSATION_HISTORY_LEN",
+        description="Maximum number of messages to keep in conversation history before compacting",
+    )
+    cron_messages_as_system: bool = Field(
+        True,
+        validation_alias="CRON_MESSAGES_AS_SYSTEM",
+        description="Store cron-originated inbound prompts as system-context entries in shared history",
+    )
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra="ignore",
+    )
+
+
 class Settings(BaseSettings):
     discord: DiscordConfig = Field(default_factory=DiscordConfig)
     elevenlabs: ElevenLabsConfig = Field(default_factory=ElevenLabsConfig)
     neo4j: Neo4jConfig = Field(default_factory=Neo4jConfig)
+    memory: MemoryConfig = Field(default_factory=MemoryConfig)
     agent: AgentConfig = Field(
         default_factory=lambda: AgentConfig(
             tool_timeout=30,
             retries=2,
             request_limit=10,
         )
-    )
-    max_conversation_history_len: int = Field(
-        15,
-        description="Maximum number of messages to keep in conversation history before compacting",
     )
     smart_model: str = Field(
         "google-gla:gemini-3-flash-preview",
@@ -122,30 +167,6 @@ class Settings(BaseSettings):
     fast_model: str = Field(
         "google-gla:gemini-3.1-flash-lite-preview",
         description="Fast/utility agent model in native PydanticAI provider:model format",
-    )
-    memory_embedding_provider: str = Field(
-        "google-gla",
-        description="Embedding provider for graph memory (e.g. google-gla, google-vertex)",
-    )
-    memory_embedding_model: str = Field(
-        "gemini-embedding-001",
-        description="Embedding model name for graph memory",
-    )
-    memory_embedding_dimensions: int = Field(
-        1536,
-        description="Embedding vector dimensions used by graph-memory indexes",
-    )
-    memory_fact_dedup_threshold: float = Field(
-        0.85,
-        description="Similarity threshold for semantic fact deduplication",
-    )
-    shared_history_thread_id: str = Field(
-        "main",
-        description="Single shared short-term history thread used across all channels",
-    )
-    cron_messages_as_system: bool = Field(
-        True,
-        description="Store cron-originated inbound prompts as system-context entries in shared history",
     )
     redis_host: str = "localhost"
     redis_port: int = 6379

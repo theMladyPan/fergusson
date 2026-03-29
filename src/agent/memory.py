@@ -9,11 +9,11 @@ from src.db.models import Message, Summary
 
 
 def get_shared_history_thread_id() -> str:
-    return settings.shared_history_thread_id
+    return settings.memory.shared_history_thread_id
 
 
 def get_inbound_history_role(channel: str) -> str:
-    if channel == "cron" and settings.cron_messages_as_system:
+    if channel == "cron" and settings.memory.cron_messages_as_system:
         return "system"
     return "user"
 
@@ -117,13 +117,13 @@ async def check_and_compact(session: AsyncSession, history_thread_id: str, archi
     count_result = await session.execute(stmt)
     count = count_result.scalar()
 
-    if count > settings.max_conversation_history_len:
+    if count > settings.memory.max_conversation_history_len:
         # Fetch oldest messages to compact (approx 2 thirds to allow some buffer)
         stmt = (
             select(Message)
             .where(Message.chat_id == history_thread_id, Message.is_valid == True)  # noqa: E712
             .order_by(Message.timestamp.asc())
-            .limit(settings.max_conversation_history_len * 2 // 3)
+            .limit(settings.memory.max_conversation_history_len * 2 // 3)
         )
         result = await session.execute(stmt)
         messages_to_compact = result.scalars().all()

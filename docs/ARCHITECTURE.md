@@ -47,7 +47,7 @@ Fergusson operates across multiple channels (CLI, Discord, Cron) via a centraliz
     2.  `send_message_to_channel(channel, chat_id, message)`: Injects a message directly into the Redis outbound queue for the target channel.
 
 **Implementation Notes:**
-*   Shared history configuration lives in `src/config.py` via `shared_history_thread_id`.
+*   Shared history configuration lives in `src/config.py` under `settings.memory.shared_history_thread_id`.
 *   Model selection also lives in `src/config.py` via env-backed `smart_model` and `fast_model`. Neo4j configuration lives there too via `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD`, and `NEO4J_DATABASE`. `workspace/config/config.json` is limited to non-model runtime config such as channels and MCP servers.
 *   The main runtime loop in `src/runners.py` resolves every inbound message to the shared thread before calling the agent and before triggering compaction.
 *   Stored rows in `src/db/models.py` continue to record the origin channel, and message metadata stores the original transport `chat_id` used for recent-chat lookup and channel replies.

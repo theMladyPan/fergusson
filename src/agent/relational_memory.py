@@ -245,10 +245,10 @@ class RelationalMemoryStore:
         assert self.config.password is not None
 
         embedder = Embedder(
-            f"{settings.memory_embedding_provider}:{settings.memory_embedding_model}",
-            settings={"dimensions": settings.memory_embedding_dimensions},
+            f"{settings.memory.embedding.provider}:{settings.memory.embedding.model}",
+            settings={"dimensions": settings.memory.embedding.dimensions},
         )
-        embedder_adapter = PydanticAIEmbedderAdapter(embedder, settings.memory_embedding_dimensions)
+        embedder_adapter = PydanticAIEmbedderAdapter(embedder, settings.memory.embedding.dimensions)
 
         memory_settings = MemorySettings(
             neo4j=NAMNeo4jConfig(
@@ -259,8 +259,8 @@ class RelationalMemoryStore:
             ),
             embedding=EmbeddingConfig(
                 provider=EmbeddingProvider.CUSTOM,
-                model=f"{settings.memory_embedding_provider}:{settings.memory_embedding_model}",
-                dimensions=settings.memory_embedding_dimensions,
+                model=f"{settings.memory.embedding.provider}:{settings.memory.embedding.model}",
+                dimensions=settings.memory.embedding.dimensions,
             ),
             extraction=ExtractionConfig(extractor_type=ExtractorType.NONE),
             memory=MemoryConfig(fact_deduplication_enabled=True),
@@ -293,7 +293,7 @@ class RelationalMemoryStore:
         candidates = await self._memory_client.long_term.search_facts(
             query,
             limit=8,
-            threshold=settings.memory_fact_dedup_threshold,
+            threshold=settings.memory.fact_dedup_threshold,
         )
         for candidate in candidates:
             if _normalize_subject(candidate.subject) != subject:
@@ -303,7 +303,7 @@ class RelationalMemoryStore:
             if _normalize_text(candidate.object) == _normalize_text(object_value):
                 return True
             similarity = candidate.metadata.get("similarity")
-            if similarity is not None and float(similarity) >= settings.memory_fact_dedup_threshold:
+            if similarity is not None and float(similarity) >= settings.memory.fact_dedup_threshold:
                 return True
         return False
 
@@ -622,7 +622,7 @@ class RelationalMemoryStore:
             preference,
             category=normalized_category,
             limit=12,
-            threshold=settings.memory_fact_dedup_threshold,
+            threshold=settings.memory.fact_dedup_threshold,
         )
         for pref in existing:
             if _normalize_predicate(pref.category) != normalized_category:
@@ -630,7 +630,7 @@ class RelationalMemoryStore:
             if _normalize_text(pref.preference) == normalized_preference:
                 return "Skipped preference: exact duplicate."
             similarity = pref.metadata.get("similarity")
-            if similarity is not None and float(similarity) >= settings.memory_fact_dedup_threshold:
+            if similarity is not None and float(similarity) >= settings.memory.fact_dedup_threshold:
                 return "Skipped preference: semantic duplicate."
 
         await self._memory_client.long_term.add_preference(
@@ -905,7 +905,7 @@ class RelationalMemoryStore:
             preferences = await self._memory_client.long_term.search_preferences(
                 query,
                 limit=max_items,
-                threshold=settings.memory_fact_dedup_threshold,
+                threshold=settings.memory.fact_dedup_threshold,
             )
             if preferences:
                 parts.append("### Preferences")
@@ -919,7 +919,7 @@ class RelationalMemoryStore:
             facts = await self._memory_client.long_term.search_facts(
                 query,
                 limit=max_items,
-                threshold=settings.memory_fact_dedup_threshold,
+                threshold=settings.memory.fact_dedup_threshold,
             )
             active_facts = [fact for fact in facts if getattr(fact, "valid_until", None) is None]
             if active_facts:
@@ -934,7 +934,7 @@ class RelationalMemoryStore:
             entities = await self._memory_client.long_term.search_entities(
                 query,
                 limit=max_items,
-                threshold=settings.memory_fact_dedup_threshold,
+                threshold=settings.memory.fact_dedup_threshold,
             )
 
         if include_entities and entities:

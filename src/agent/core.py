@@ -264,7 +264,7 @@ class AgentManager:
         deps = AgentDeps(
             chat_id=chat_id,
             channel=channel,
-            history_thread_id=settings.shared_history_thread_id,
+            history_thread_id=settings.memory.shared_history_thread_id,
             sender_id=sender_id,
         )
 

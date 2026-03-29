@@ -42,7 +42,7 @@ async def session_factory(tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_shared_history_combines_channels_and_cron_system_entries(session_factory, monkeypatch):
-    monkeypatch.setattr(settings, "cron_messages_as_system", True)
+    monkeypatch.setattr(settings.memory, "cron_messages_as_system", True)
 
     async with session_factory() as session:
         shared_thread_id = get_shared_history_thread_id()
@@ -134,7 +134,7 @@ class _FakeArchiver:
 
 @pytest.mark.asyncio
 async def test_check_and_compact_uses_single_shared_thread(session_factory, monkeypatch):
-    monkeypatch.setattr(settings, "max_conversation_history_len", 3)
+    monkeypatch.setattr(settings.memory, "max_conversation_history_len", 3)
 
     async with session_factory() as session:
         shared_thread_id = get_shared_history_thread_id()
