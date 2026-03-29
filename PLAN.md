@@ -86,3 +86,22 @@ fergusson/
 ### Phase 6: Scheduled & Background Tasks
 - [x] Implement periodic background tasks via ROUTINE.md.
 - [x] Create a Cron-like scheduler for executing tasks at exact times.
+
+### Phase 7: MCP Server Runtime Integration
+- [ ] Wire `workspace/config/config.json` `mcp_servers` into the core agent runtime so configured MCP tools are actually available.
+- [ ] Implement MCP server factory logic for stdio (`command` + `args`) and HTTP (`url`) transports with explicit validation.
+- [ ] Add deterministic transport selection support (`sse` vs `streamable_http`) while keeping backward compatibility for existing configs.
+- [ ] Attach MCP servers/toolsets to `CoreAgent` with collision-safe tool prefixes based on server name.
+- [ ] Add lifecycle management: open/connect on startup path and close MCP servers on shutdown.
+- [ ] Add tests for MCP config parsing, server creation, agent wiring, and shutdown behavior.
+- [ ] Update `AGENTS.md`/architecture docs to reflect MCP runtime behavior and config expectations.
+
+### Phase 8: Public Repository README & Workspace Examples
+- [ ] Refactor `README.md` for public onboarding so a new user can clone, configure, and run Fergusson without prior project context.
+- [ ] Add clear prerequisites and environment setup instructions (`uv`, Redis, Python version, API keys, optional Neo4j).
+- [ ] Add quick-start flow (install, configure `.env`, start services, run CLI/Discord workers, smoke test).
+- [ ] Document configuration model clearly (`SMART_MODEL`, `FAST_MODEL`, `workspace/config/config.json`, channels, MCP servers).
+- [ ] Add security/privacy guidance for secrets, permissions, and safe defaults for first run.
+- [ ] Provide `workspace` examples suitable for new users (example `config.json`, starter `PERSONALITY.md`, starter `MEMORY.md`, sample `ROUTINE.md`, and at least one example skill).
+- [ ] Document how to customize/replace workspace examples for personal use and how to keep sensitive data out of git.
+- [ ] Add troubleshooting section for common setup failures (Redis connection, model auth, Discord token issues, MCP server startup issues).
