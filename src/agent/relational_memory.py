@@ -156,6 +156,13 @@ class RelationalMemoryStore:
         self._available = False
         self._verified = False
 
+    async def _safe_long_term_search(self, label: str, search_coro) -> list[Any]:
+        try:
+            return await search_coro
+        except Exception as exc:
+            logfire.warning("Relational memory search failed; skipping section", section=label, error=str(exc))
+            return []
+
     async def search_memory(self, query: str, memory_types: list[str] | None = None, limit: int = 8) -> str:
         if not query.strip():
             return "Provide a non-empty memory query."
@@ -177,7 +184,10 @@ class RelationalMemoryStore:
         parts: list[str] = []
 
         if include_preferences:
-            preferences = await self._memory_client.long_term.search_preferences(query, limit=limit)
+            preferences = await self._safe_long_term_search(
+                "preferences",
+                self._memory_client.long_term.search_preferences(query, limit=limit),
+            )
             if preferences:
                 parts.append("### Preferences")
                 for pref in preferences[:limit]:
@@ -187,7 +197,10 @@ class RelationalMemoryStore:
                     parts.append(line)
 
         if include_facts:
-            facts = await self._memory_client.long_term.search_facts(query, limit=limit)
+            facts = await self._safe_long_term_search(
+                "facts",
+                self._memory_client.long_term.search_facts(query, limit=limit),
+            )
             active_facts = [fact for fact in facts if getattr(fact, "valid_until", None) is None]
             if active_facts:
                 if parts:
@@ -197,7 +210,10 @@ class RelationalMemoryStore:
                     parts.append(f"- {fact.subject} -> {fact.predicate} -> {fact.object}")
 
         if include_entities:
-            entities = await self._memory_client.long_term.search_entities(query, limit=limit)
+            entities = await self._safe_long_term_search(
+                "entities",
+                self._memory_client.long_term.search_entities(query, limit=limit),
+            )
             if entities:
                 if parts:
                     parts.append("")
