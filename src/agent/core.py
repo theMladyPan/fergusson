@@ -21,7 +21,7 @@ from pydantic_ai.retries import AsyncTenacityTransport, RetryConfig, wait_retry_
 from pydantic_ai.usage import UsageLimits
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential
 
-from src.agent.memory import get_recent_delivery_destinations
+from src.agent.memory import get_history_thread_id, get_recent_delivery_destinations
 from src.agent.relational_memory import RelationalMemoryCapability, RelationalMemoryStore
 from src.agent.skills import SkillRegistry
 from src.broker.bus import MessageBus
@@ -147,7 +147,7 @@ class AgentManager:
         self.relational_memory_store: RelationalMemoryStore | None = None
         capabilities: list[AbstractCapability[AgentDeps]] = []
         if settings.neo4j.is_configured:
-            self.relational_memory_store = RelationalMemoryStore(settings.neo4j)
+            self.relational_memory_store = RelationalMemoryStore(settings.neo4j, fast_model=self.fast_model)
             capabilities.append(
                 RelationalMemoryCapability(
                     store=self.relational_memory_store,
@@ -188,7 +188,8 @@ class AgentManager:
             return (
                 "\n\nCURRENT CONTEXT:\n"
                 f"You are currently operating in channel: '{ctx.deps.channel}' and chat_id: '{ctx.deps.chat_id}'. "
-                f"All channels share the same short-term history thread: '{ctx.deps.history_thread_id}'."
+                f"This turn is using short-term history thread: '{ctx.deps.history_thread_id}'. "
+                "Cron history is separate from user chat history."
             )
 
         @self.request_limit_recovery_agent.system_prompt
@@ -196,7 +197,8 @@ class AgentManager:
             return (
                 "\n\nCURRENT CONTEXT:\n"
                 f"You are currently operating in channel: '{ctx.deps.channel}' and chat_id: '{ctx.deps.chat_id}'. "
-                f"All channels share the same short-term history thread: '{ctx.deps.history_thread_id}'."
+                f"This turn is using short-term history thread: '{ctx.deps.history_thread_id}'. "
+                "Cron history is separate from user chat history."
             )
 
         for tool in all_tools:
@@ -257,13 +259,14 @@ class AgentManager:
         chat_id: str = "cli",
         channel: str = "cli",
         sender_id: str | None = None,
+        history_thread_id: str | None = None,
     ) -> AgentRunResult:
         """Runs the core agent loop."""
 
         deps = AgentDeps(
             chat_id=chat_id,
             channel=channel,
-            history_thread_id=settings.memory.shared_history_thread_id,
+            history_thread_id=history_thread_id or get_history_thread_id(channel, sender_id),
             sender_id=sender_id,
         )
 

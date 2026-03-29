@@ -53,8 +53,8 @@ def test_settings_load_memory_config_from_env(monkeypatch):
     monkeypatch.setenv("MEMORY_EMBEDDING_PROVIDER", "openai")
     monkeypatch.setenv("MEMORY_EMBEDDING_MODEL", "text-embedding-3-large")
     monkeypatch.setenv("MEMORY_EMBEDDING_DIMENSIONS", "3072")
-    monkeypatch.setenv("MEMORY_FACT_DEDUP_THRESHOLD", "0.9")
     monkeypatch.setenv("SHARED_HISTORY_THREAD_ID", "shared-thread")
+    monkeypatch.setenv("CRON_HISTORY_THREAD_ID", "cron-thread")
     monkeypatch.setenv("MAX_CONVERSATION_HISTORY_LEN", "42")
     monkeypatch.setenv("CRON_MESSAGES_AS_SYSTEM", "false")
 
@@ -63,8 +63,8 @@ def test_settings_load_memory_config_from_env(monkeypatch):
     assert settings.memory.embedding.provider == "openai"
     assert settings.memory.embedding.model == "text-embedding-3-large"
     assert settings.memory.embedding.dimensions == 3072
-    assert settings.memory.fact_dedup_threshold == 0.9
     assert settings.memory.shared_history_thread_id == "shared-thread"
+    assert settings.memory.cron_history_thread_id == "cron-thread"
     assert settings.memory.max_conversation_history_len == 42
     assert settings.memory.cron_messages_as_system is False
 

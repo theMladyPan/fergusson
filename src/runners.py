@@ -11,8 +11,8 @@ from src.agent.memory import (
     add_message,
     check_and_compact,
     get_history,
+    get_history_thread_id,
     get_inbound_history_role,
-    get_shared_history_thread_id,
 )
 from src.broker.bus import MessageBus
 from src.broker.schemas import InboundMessage, MessageMetadata, OutboundMessage, TokenUsage
@@ -31,7 +31,7 @@ async def agent_loop(bus: MessageBus, manager: AgentManager, archiver: Archiver)
             msg: InboundMessage = await bus.get_next_inbound()
             with logfire.span(f"Processing message from {msg.channel}/{msg.username}: {msg.content[:50]}...") as span:
                 async with async_session() as session:
-                    history_thread_id = get_shared_history_thread_id()
+                    history_thread_id = get_history_thread_id(msg.channel, msg.sender_id)
 
                     # 1. Retrieve history
                     history = await get_history(session, history_thread_id)
@@ -50,7 +50,7 @@ async def agent_loop(bus: MessageBus, manager: AgentManager, archiver: Archiver)
                     # --------------------------------------------
 
                     # 2. Add current user message to DB
-                    inbound_role = get_inbound_history_role(msg.channel)
+                    inbound_role = get_inbound_history_role(msg.channel, msg.sender_id)
                     await add_message(
                         session,
                         history_thread_id,
@@ -74,6 +74,7 @@ async def agent_loop(bus: MessageBus, manager: AgentManager, archiver: Archiver)
                             chat_id=msg.chat_id,
                             channel=msg.channel,
                             sender_id=msg.sender_id,
+                            history_thread_id=history_thread_id,
                         )
 
                         # 4. Add assistant response to DB

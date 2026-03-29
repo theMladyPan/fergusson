@@ -393,7 +393,7 @@ Condense findings carefully.
     assert "Avoid admin/report voice for routine chat" in prompt
     assert "Memory mentions are usually implicit" in prompt
     assert "user-specific personalization only" in prompt
-    assert "concrete operational identifiers" in prompt
+    assert "most important anchor objects" in prompt
     assert "## Skill: Researcher (`researcher`)" in prompt
     assert "Description: Search the web and summarize findings." in prompt
     assert "Allowed tools: get_content_from_url" in prompt
@@ -424,6 +424,7 @@ async def test_agent_manager_run_passes_usage_limits(monkeypatch):
     assert captured["kwargs"]["message_history"] == []
     assert captured["kwargs"]["deps"].chat_id == "cli_chat"
     assert captured["kwargs"]["deps"].sender_id == "user-123"
+    assert captured["kwargs"]["deps"].history_thread_id == settings.memory.shared_history_thread_id
 
 
 @pytest.mark.asyncio

@@ -9,12 +9,12 @@ class Base(DeclarativeBase):
 
 
 class Message(Base):
-    """All persisted short-term history entries, grouped by the canonical history thread id."""
+    """All persisted short-term history entries, grouped by the resolved history thread id."""
 
     __tablename__ = "messages"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    chat_id: Mapped[str] = mapped_column(String, index=True)  # Canonical shared history thread id
+    chat_id: Mapped[str] = mapped_column(String, index=True)  # Resolved short-term history thread id
     channel: Mapped[str] = mapped_column(String, default="unknown")  # Origin channel, e.g. 'discord', 'cli'
     role: Mapped[str] = mapped_column(String)  # 'system', 'user', 'assistant'
     content: Mapped[str] = mapped_column(Text)
@@ -24,12 +24,12 @@ class Message(Base):
 
 
 class Summary(Base):
-    """Compacted summaries for a canonical history thread."""
+    """Compacted summaries for a resolved history thread."""
 
     __tablename__ = "summaries"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    chat_id: Mapped[str] = mapped_column(String, index=True)  # Canonical shared history thread id
+    chat_id: Mapped[str] = mapped_column(String, index=True)  # Resolved short-term history thread id
     content: Mapped[str] = mapped_column(Text)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     range_start_id: Mapped[Optional[int]] = mapped_column()  # ID of first message covered
