@@ -125,7 +125,12 @@ class MemoryConfig(BaseSettings):
     shared_history_thread_id: str = Field(
         "main",
         validation_alias="SHARED_HISTORY_THREAD_ID",
-        description="Single shared short-term history thread used across all channels",
+        description="Shared short-term history thread used by conversational user channels",
+    )
+    cron_history_thread_id: str = Field(
+        "cron",
+        validation_alias="CRON_HISTORY_THREAD_ID",
+        description="Dedicated short-term history thread used by cron-triggered turns",
     )
     max_conversation_history_len: int = Field(
         15,
@@ -135,7 +140,7 @@ class MemoryConfig(BaseSettings):
     cron_messages_as_system: bool = Field(
         True,
         validation_alias="CRON_MESSAGES_AS_SYSTEM",
-        description="Store cron-originated inbound prompts as system-context entries in shared history",
+        description="Store cron-originated inbound prompts as system-context entries in the cron history thread",
     )
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -7,11 +7,11 @@ Fergusson is a modular AI assistant with an event-driven architecture:
 - **channels** (CLI, Discord, future inputs) receive messages,
 - the **broker** (Redis) distributes them,
 - the **core agent** applies native tools and reusable skills directly,
-- **memory** is layered: one shared SQLite thread for recent conversation, optional Neo4j graph memory for durable structured facts/preferences/entities, and `MEMORY.md` for a tiny set of human-readable anchor identifiers. Prompt guidance uses tiered memory placement: key IDs and similar anchor objects in `MEMORY.md`, richer structured detail in graph memory. Outbound delivery remains channel-specific.
+- **memory** is layered: one shared SQLite thread for recent human conversation (`cli`/`discord`), one dedicated SQLite thread for cron turns, optional Neo4j graph memory for durable structured facts/preferences/entities, and `MEMORY.md` for a tiny set of human-readable anchor identifiers. Prompt guidance uses tiered memory placement: key IDs and similar anchor objects in `MEMORY.md`, richer structured detail in graph memory. Outbound delivery remains channel-specific.
   Graph-memory creation is explicit via core-agent memory tools; there is no separate post-turn extractor agent.
 
 ## 2) Architecture by Directory
-- `src/agent/` — agent core, orchestration, shared-thread memory, Neo4j graph-memory capability, skill loading, archiver. Graph memory uses `neo4j-agent-memory` as a thin wrapper for long-term facts/preferences/entities with a small tool surface: `search_memory`, `store_fact`, `store_preference`, and `store_entity`. Conversation continuity stays in SQLite; `MEMORY.md` is reserved for sparse anchor identifiers such as channel IDs and emails. Skill loading now returns one requested skill at a time; prerequisites are metadata hints that the agent must load explicitly.
+- `src/agent/` — agent core, orchestration, SQLite short-term memory with separate user and cron threads, Neo4j graph-memory capability, skill loading, archiver. Graph memory uses `neo4j-agent-memory` as a thin wrapper for long-term facts/preferences/entities with a small tool surface: `search_memory`, `store_fact`, `store_preference`, and `store_entity`. User/cron continuity stays in their respective SQLite threads; `MEMORY.md` is reserved for sparse anchor identifiers such as channel IDs and emails. Skill loading now returns one requested skill at a time; prerequisites are metadata hints that the agent must load explicitly.
 - `src/broker/` — message bus and message schemas between channels and runtime.
 - `src/channels/` — integration inputs/outputs (e.g., Discord, CLI adapters) that keep transport-specific `chat_id`s for delivery.
 - `src/config.py` — environment-backed runtime settings; model selection uses `SMART_MODEL` / `FAST_MODEL` as PydanticAI `provider:model` strings, Neo4j uses `NEO4J_*` env vars, and memory settings are grouped under `Settings.memory` (`MemoryConfig`) with nested `Settings.memory.embedding` (`EmbeddingConfig`). Memory envs are resolved directly by nested settings classes (for example `MEMORY_EMBEDDING_PROVIDER`). `workspace/config/config.json` remains for non-model app config.
@@ -54,7 +54,7 @@ Before handing off the implementation, check:
 - When multiple skills use the same external CLI workflow, keep the reusable command patterns in a shared tracked skill and let task-specific skills add only domain policy, routing rules, and edge-case decisions.
 
 ## Migration Note
-- Short-term memory is no longer partitioned by per-channel `chat_id`. New work should use the shared history thread configured in `src/config.py`.
+- Short-term memory is no longer partitioned by per-channel `chat_id`. New work should route conversational turns to the shared user history thread and cron turns to the dedicated cron history thread configured in `src/config.py`.
 - Original channel and delivery `chat_id` still matter for outbound routing and should be preserved in message metadata when persisting history.
 - Model selection no longer comes from `workspace/config/config.json`. New work should use env variables `SMART_MODEL` and `FAST_MODEL` with native PydanticAI `provider:model` strings.
 - Skill registries no longer auto-bundle prerequisite skill bodies. If a skill lists `required_skills`, the agent must call `load_skill_details` separately for each prerequisite it needs.

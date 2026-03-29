@@ -12,8 +12,18 @@ def get_shared_history_thread_id() -> str:
     return settings.memory.shared_history_thread_id
 
 
-def get_inbound_history_role(channel: str) -> str:
-    if channel == "cron" and settings.memory.cron_messages_as_system:
+def get_cron_history_thread_id() -> str:
+    return settings.memory.cron_history_thread_id
+
+
+def get_history_thread_id(channel: str, sender_id: str | None = None) -> str:
+    if channel == "cron" or sender_id == "system_cron":
+        return get_cron_history_thread_id()
+    return get_shared_history_thread_id()
+
+
+def get_inbound_history_role(channel: str, sender_id: str | None = None) -> str:
+    if (channel == "cron" or sender_id == "system_cron") and settings.memory.cron_messages_as_system:
         return "system"
     return "user"
 

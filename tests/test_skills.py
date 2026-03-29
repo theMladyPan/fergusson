@@ -424,6 +424,7 @@ async def test_agent_manager_run_passes_usage_limits(monkeypatch):
     assert captured["kwargs"]["message_history"] == []
     assert captured["kwargs"]["deps"].chat_id == "cli_chat"
     assert captured["kwargs"]["deps"].sender_id == "user-123"
+    assert captured["kwargs"]["deps"].history_thread_id == settings.memory.shared_history_thread_id
 
 
 @pytest.mark.asyncio
