@@ -311,12 +311,12 @@ class RelationalMemoryStore:
             normalized_type,
             subtype=normalized_subtype,
             description=description.strip() if isinstance(description, str) and description.strip() else None,
-            confidence=confidence,
             metadata={
                 "source_kind": source_kind,
                 "source_channel": source_channel,
                 "source_ref": source_ref,
                 "source_note": source_note or "",
+                "source_confidence": confidence,
             },
             resolve=True,
             deduplicate=True,
