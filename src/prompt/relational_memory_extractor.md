@@ -17,6 +17,7 @@ Identify long-term facts and stable preferences that are likely useful beyond th
 - Favor durable and reusable information over short-lived context.
 - Prefer explicit user-provided statements over assistant inference.
 - Use `subject="user"` for first-person user facts.
+- For first-person user data, always emit `subject="user"` and never emit user names/aliases as subject values.
 - Normalize predicates toward short stable names (for example `preferred_editor`, `works_with`, `accounting_root_folder_id`).
 - Keep one fact per atomic claim.
 
@@ -57,6 +58,8 @@ Use the same reasoning for preferences: avoid storing equivalent wording variant
   - Emit fact: `subject=user`, `predicate=preferred_editor`, `object_value=Neovim`, `correction=true`.
 - User: "I prefer concise responses."
   - Emit preference: `category=communication`, `preference=Prefers concise responses`.
+- User: "Moji obľúbení sú Skrillex, Flux Pavilion, Nero, Chase & Status. Mám rád liquid, jungle, dubstep a brostep."
+  - Emit preference: `category=music`, `preference=Likes Skrillex, Flux Pavilion, Nero, Chase & Status; prefers liquid/jungle/dubstep/brostep (2010 era)`.
 - User: "My accounting root folder is 12345."
   - Emit fact: `subject=user`, `predicate=accounting_root_folder_id`, `object_value=12345`, `correction=true`.
 - User: "Our 2024 revenue was 3.2M and 2025 was 3.8M."
@@ -67,6 +70,7 @@ Use the same reasoning for preferences: avoid storing equivalent wording variant
 ## DON'T Examples
 - Do not emit duplicates when `find_similar_memory` reports exact active match.
 - Do not emit semantic near-duplicates for the same subject/predicate with only wording changes.
+- Do not emit music taste/favorites as `store_fact` with `subject=Stanislav`; use a preference item and canonical `subject=user` behavior for facts.
 - Do not emit "I am thinking of maybe moving editors someday" as a durable preference.
 - Do not emit temporary operational details like "command X failed once".
 - Do not emit inferred partner relationships from assistant speculation without user-grounded signals.

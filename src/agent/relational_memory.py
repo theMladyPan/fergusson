@@ -517,6 +517,7 @@ class RelationalMemoryCapability(AbstractCapability):
             "You also have graph memory stored in Neo4j.\n"
             "`search_memory` and `get_memory_context` are useful when durable facts and preferences matter.\n"
             "`store_fact` fits durable declarative facts, while `store_preference` fits stable user preferences.\n"
+            "For tastes, interests, favorites, and style preferences, prefer `store_preference`.\n"
             "Duplicate storage is avoided: if a fact already exists, skip storing it again.\n"
             "If the user corrects a previously true value for the same subject+predicate, `store_fact` with correction=true can be used.\n"
             "Graph memory complements `MEMORY.md`; concise high-signal anchors can stay in `MEMORY.md` while richer structured detail can live in graph memory."

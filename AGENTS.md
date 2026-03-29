@@ -8,6 +8,7 @@ Fergusson is a modular AI assistant with an event-driven architecture:
 - the **broker** (Redis) distributes them,
 - the **core agent** applies native tools and reusable skills directly,
 - **memory** is layered: one shared SQLite thread for recent conversation, optional Neo4j graph memory for durable structured facts/preferences, and `MEMORY.md` for human-readable long-term notes. Prompt guidance uses tiered memory placement: high-signal anchor facts in `MEMORY.md`, richer structured detail in graph memory, with compact graph-detail references in `MEMORY.md` when relevant. Graph memory is backed by `neo4j-agent-memory` with semantic/exact duplicate suppression and extractor prompt rules with do/don't examples. Outbound delivery remains channel-specific.
+  Memory extraction policy prefers `store_preference` for tastes/interests/favorites and enforces first-person subject canonicalization through extractor prompt rules.
 
 ## 2) Architecture by Directory
 - `src/agent/` — agent core, orchestration, shared-thread memory, Neo4j graph-memory capability, skill loading, archiver. Graph memory uses `neo4j-agent-memory` (long-term facts/preferences), library-style tools (`search_memory`, `get_memory_context`, `store_fact`, `store_preference`), semantic dedup, and temporal correction handling (`correction=true` closes previous conflicting facts by setting `valid_until`). Skill loading now returns one requested skill at a time; prerequisites are metadata hints that the agent must load explicitly.

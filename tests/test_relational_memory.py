@@ -148,6 +148,7 @@ def test_capability_instructions_use_new_tool_names():
     assert "store_fact" in text
     assert "store_preference" in text
     assert "correction=true" in text
+    assert "tastes, interests, favorites" in text
 
 
 def test_extractor_instructions_include_dedup_and_similarity_tool():
@@ -155,6 +156,8 @@ def test_extractor_instructions_include_dedup_and_similarity_tool():
     assert "find_similar_memory" in text
     assert "semantic near-duplicates" in text
     assert "correction=true" in text
+    assert "always emit `subject=\"user\"`" in text
+    assert "music" in text
 
 
 def test_normalize_predicate_collapses_spaces_and_punctuation():
