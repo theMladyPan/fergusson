@@ -9,7 +9,7 @@ The Core Agent (`src/agent/core.py`) is the primary interface for all incoming u
 *   **Intent Recognition:** It analyzes the user's message to determine if it can handle the request directly using its built-in tools (Bash, Filesystem) or if the task requires specialized expertise.
 *   **Guardrails:** Given its access to bash execution (`src/tools/bash.py`), it is configured to intercept hazardous commands (like `rm`, `sudo`) and explicitly request user permission before execution.
 *   **Memory Integration:** It maintains a persistent context of the conversation using SQLite (`state.db`). CLI and Discord share one user conversation thread, while cron uses a separate short-term history thread. Transport-specific routing metadata is still preserved for outbound replies. `MEMORY.md` remains in the prompt only as a sparse anchor sheet for critical identifiers.
-*   **Relational Memory Capability:** When `NEO4J_*` env vars are configured, the Core Agent attaches a PydanticAI capability from `src/agent/relational_memory.py`. That capability injects relevant graph-memory context before model requests and exposes a small library-backed read/write surface for durable facts, preferences, and POLE+O entities.
+*   **Relational Memory Capability:** When `NEO4J_*` env vars are configured, the Core Agent attaches a PydanticAI capability from `src/agent/relational_memory.py`. That capability injects relevant graph-memory context before model requests and exposes a small library-backed read/write surface for durable facts, preferences, POLE+O entities, and entity relationships.
 *   **Model Configuration:** The agent now loads `SMART_MODEL` and `FAST_MODEL` directly from environment variables as native PydanticAI `provider:model` strings. Fergusson keeps a thin wrapper only for OpenAI and Google direct-provider strings so existing retry and Logfire instrumentation behavior is preserved.
 *   **Loop Protection:** The main conversational run is capped by request count using PydanticAI `UsageLimits(request_limit=10)` by default. This favors fast parallel tool use while stopping excessive guess-and-retry model loops.
 
@@ -57,13 +57,14 @@ Neo4j adds an optional structured long-term memory layer on top of the shared SQ
 
 **Data model:**
 *   Relational memory is backed by `neo4j-agent-memory` long-term nodes (`Fact`, `Preference`, `Entity`).
-*   This repository stores durable facts/preferences/entities via library APIs and passes basic provenance metadata (`source_kind`, `source_channel`, `source_ref`, optional note).
+*   This repository stores durable facts/preferences/entities/relations via library APIs and passes basic provenance metadata (`source_kind`, `source_channel`, `source_ref`, optional note).
 
 **Behavior:**
 *   The capability performs one lightweight memory lookup before model requests and injects a concise `# Graph Memory Context` block only when relevant matches exist.
-*   The model can explicitly call `search_memory(...)`, `store_fact(...)`, `store_preference(...)`, and `store_entity(...)`.
+*   The model can explicitly call `search_memory(...)`, `store_fact(...)`, `store_preference(...)`, `store_entity(...)`, and `store_relation(...)`.
 *   Retrieval formatting is intentionally simple: a short plain-text block of matching facts, preferences, and entities.
-*   Memory creation is explicit: the core agent writes graph memory only via `store_fact`, `store_preference`, and `store_entity` tool calls.
+*   Fact, preference, and relation writes use a three-stage duplicate check: exact match, semantic/neighbor candidate search, and a fast-model tie-breaker only for ambiguous cases.
+*   Memory creation is explicit: the core agent writes graph memory only via `store_fact`, `store_preference`, `store_entity`, and `store_relation` tool calls.
 *   Cron-originated turns can create relational memories when the source content is durable.
 
 **Operational notes:**
@@ -74,7 +75,7 @@ Neo4j adds an optional structured long-term memory layer on top of the shared SQ
 *   This repository now assumes a fresh or reset SQLite history is acceptable. Existing per-channel rows do not need to be migrated because durable preferences and critical facts belong in `MEMORY.md`.
 *   Model/provider aliases are no longer defined in `workspace/config/config.json`. Use native PydanticAI model strings like `openai:...`, `google-gla:...`, or `gateway/...` in `SMART_MODEL` and `FAST_MODEL` instead.
 *   Neo4j relational memory is additive. It complements the separate SQLite history streams, but it does not store full raw conversation history in v1.
-*   The repository intentionally does not preserve custom relation semantics, similarity-lookup tools, or correction workflows from the earlier wrapper.
+*   The repository intentionally does not preserve custom correction workflows from the earlier wrapper. Relationship creation now uses the library API rather than custom Cypher.
 
 ## 6. Future Expansions (Phase 5 & 6)
 *   **`MEMORY.md` Scratchpad:** A local file where the agent can write down transient state or plans that survive across reboots.

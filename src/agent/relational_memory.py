@@ -3,6 +3,7 @@ from typing import Any
 
 import logfire
 from pydantic import SecretStr
+from pydantic_ai import Agent
 from pydantic_ai.capabilities import AbstractCapability
 from pydantic_ai.embeddings import Embedder
 from pydantic_ai.messages import ModelRequest, SystemPromptPart, UserPromptPart
@@ -53,6 +54,20 @@ def _normalize_entity_label(value: str | None, *, default: str | None = None) ->
     return normalized or default
 
 
+def _normalize_relation_type(value: str) -> str:
+    return _normalize_predicate(value).upper()
+
+
+def _normalize_optional_text(value: str | None) -> str:
+    if value is None:
+        return ""
+    return _normalize_text(value)
+
+
+def _entity_display_name(entity: Any) -> str:
+    return getattr(entity, "display_name", None) or getattr(entity, "canonical_name", None) or getattr(entity, "name", "unknown")
+
+
 def _extract_latest_user_text(messages: list) -> str:
     for message in reversed(messages):
         if not isinstance(message, ModelRequest):
@@ -84,11 +99,13 @@ class PydanticAIEmbedderAdapter:
 
 
 class RelationalMemoryStore:
-    def __init__(self, config: Neo4jConfig):
+    def __init__(self, config: Neo4jConfig, fast_model: Any | None = None):
         self.config = config
+        self._fast_model = fast_model or settings.fast_model
         self._memory_client: Any | None = None
         self._available = False
         self._verified = False
+        self._dedup_agent: Agent | None = None
 
     async def ensure_available(self) -> bool:
         if self._verified:
@@ -162,6 +179,207 @@ class RelationalMemoryStore:
         except Exception as exc:
             logfire.warning("Relational memory search failed; skipping section", section=label, error=str(exc))
             return []
+
+    def _get_dedup_agent(self) -> Agent:
+        if self._dedup_agent is None:
+            self._dedup_agent = Agent(
+                self._fast_model,
+                name="MemoryDedupJudge",
+                system_prompt=(
+                    "You decide whether a proposed durable memory duplicates an existing stored memory.\n"
+                    "Return exactly one lowercase word: duplicate, distinct, or uncertain.\n"
+                    "Use duplicate only when the proposed memory is meaningfully the same durable fact/preference/relation.\n"
+                    "Use distinct when both could reasonably coexist as separate memories.\n"
+                    "Use uncertain when the evidence is weak or ambiguous.\n"
+                    "Do not explain your answer."
+                ),
+            )
+        return self._dedup_agent
+
+    async def _judge_duplicate(
+        self,
+        *,
+        memory_kind: str,
+        proposed: dict[str, Any],
+        candidates: list[dict[str, Any]],
+    ) -> str:
+        if not candidates:
+            return "distinct"
+
+        prompt = (
+            f"Memory kind: {memory_kind}\n"
+            f"Proposed memory:\n{proposed}\n\n"
+            f"Candidate existing memories:\n{candidates[:3]}\n\n"
+            "Is the proposed memory a duplicate of any candidate?"
+        )
+
+        try:
+            result = await self._get_dedup_agent().run(prompt)
+        except Exception as exc:
+            logfire.warning("Memory dedup tie-breaker failed", memory_kind=memory_kind, error=str(exc))
+            return "uncertain"
+
+        answer = str(result.output).strip().splitlines()[0].strip().lower()
+        if answer in {"duplicate", "distinct", "uncertain"}:
+            return answer
+        return "uncertain"
+
+    async def _exact_fact_exists(self, *, subject: str, predicate: str, object_value: str) -> bool:
+        assert self._memory_client is not None
+        facts = await self._memory_client.long_term.get_facts_about(subject, limit=100)
+        normalized_object = _normalize_text(object_value)
+        for fact in facts:
+            if getattr(fact, "valid_until", None) is not None:
+                continue
+            if _normalize_predicate(fact.predicate) != predicate:
+                continue
+            if _normalize_text(fact.object) == normalized_object:
+                return True
+        return False
+
+    async def _semantic_fact_candidates(self, *, subject: str, predicate: str, object_value: str) -> list[dict[str, Any]]:
+        assert self._memory_client is not None
+        matches = await self._safe_long_term_search(
+            "fact_dedup",
+            self._memory_client.long_term.search_facts(
+                f"{subject} {predicate} {object_value}",
+                limit=5,
+                threshold=0.9,
+            ),
+        )
+        candidates: list[dict[str, Any]] = []
+        for fact in matches:
+            if _normalize_subject(fact.subject) != subject:
+                continue
+            if _normalize_predicate(fact.predicate) != predicate:
+                continue
+            if getattr(fact, "valid_until", None) is not None:
+                continue
+            candidates.append(
+                {
+                    "subject": fact.subject,
+                    "predicate": fact.predicate,
+                    "object": fact.object,
+                    "similarity": fact.metadata.get("similarity"),
+                }
+            )
+        return candidates
+
+    async def _exact_preference_exists(self, *, category: str, preference: str, context: str | None) -> bool:
+        assert self._memory_client is not None
+        results = await self._memory_client.graph.execute_read(
+            """
+            MATCH (p:Preference)
+            WHERE toLower(p.category) = $category
+              AND toLower(p.preference) = $preference
+              AND toLower(coalesce(p.context, '')) = $context
+            RETURN p
+            LIMIT 1
+            """,
+            {
+                "category": category.casefold(),
+                "preference": _normalize_text(preference),
+                "context": _normalize_optional_text(context),
+            },
+        )
+        return bool(results)
+
+    async def _semantic_preference_candidates(
+        self,
+        *,
+        category: str,
+        preference: str,
+        context: str | None,
+    ) -> list[dict[str, Any]]:
+        assert self._memory_client is not None
+        query = preference if not context else f"{preference} ({context})"
+        matches = await self._safe_long_term_search(
+            "preference_dedup",
+            self._memory_client.long_term.search_preferences(
+                query,
+                category=category,
+                limit=5,
+                threshold=0.9,
+            ),
+        )
+        candidates: list[dict[str, Any]] = []
+        for pref in matches:
+            if _normalize_predicate(pref.category) != category:
+                continue
+            candidates.append(
+                {
+                    "category": pref.category,
+                    "preference": pref.preference,
+                    "context": pref.context,
+                    "similarity": pref.metadata.get("similarity"),
+                }
+            )
+        return candidates
+
+    async def _add_entity_and_get_result(
+        self,
+        *,
+        name: str,
+        entity_type: str = "OBJECT",
+        subtype: str | None = None,
+        description: str | None = None,
+        confidence: float = 0.9,
+        source_kind: str = "user",
+        source_channel: str = "unknown",
+        source_ref: str = "",
+        source_note: str | None = None,
+    ) -> tuple[Any, Any]:
+        assert self._memory_client is not None
+
+        display_name = name.strip()
+        normalized_type = _normalize_entity_label(entity_type, default="OBJECT") or "OBJECT"
+        normalized_subtype = _normalize_entity_label(subtype) if subtype else None
+        if _normalize_subject(display_name) == "user":
+            display_name = "user"
+            normalized_type = "PERSON"
+            normalized_subtype = normalized_subtype or "INDIVIDUAL"
+
+        return await self._memory_client.long_term.add_entity(
+            display_name,
+            normalized_type,
+            subtype=normalized_subtype,
+            description=description.strip() if isinstance(description, str) and description.strip() else None,
+            metadata={
+                "source_kind": source_kind,
+                "source_channel": source_channel,
+                "source_ref": source_ref,
+                "source_note": source_note or "",
+                "source_confidence": confidence,
+            },
+            resolve=True,
+            deduplicate=True,
+            enrich=False,
+            geocode=False,
+        )
+
+    async def _relation_candidates(self, *, source_id: str, relation_type: str) -> list[dict[str, Any]]:
+        assert self._memory_client is not None
+        rows = await self._memory_client.graph.execute_read(
+            """
+            MATCH (source:Entity {id: $source_id})-[r:RELATED_TO {type: $relation_type}]->(target:Entity)
+            RETURN target, r
+            LIMIT 10
+            """,
+            {"source_id": source_id, "relation_type": relation_type},
+        )
+        candidates: list[dict[str, Any]] = []
+        for row in rows:
+            target = dict(row["target"])
+            relationship = dict(row["r"]) if hasattr(row["r"], "items") else dict(row["r"]._properties)
+            candidates.append(
+                {
+                    "target_id": target.get("id"),
+                    "target_name": target.get("canonical_name") or target.get("name"),
+                    "relation_type": relationship.get("type"),
+                    "description": relationship.get("description"),
+                }
+            )
+        return candidates
 
     async def search_memory(self, query: str, memory_types: list[str] | None = None, limit: int = 8) -> str:
         if not query.strip():
@@ -247,6 +465,31 @@ class RelationalMemoryStore:
         if not normalized_subject or not normalized_predicate or not object_text:
             return "Skipped memory fact: subject, predicate, and object_value are required."
 
+        if await self._exact_fact_exists(
+            subject=normalized_subject,
+            predicate=normalized_predicate,
+            object_value=object_text,
+        ):
+            return "Skipped memory fact: exact duplicate."
+
+        fact_candidates = await self._semantic_fact_candidates(
+            subject=normalized_subject,
+            predicate=normalized_predicate,
+            object_value=object_text,
+        )
+        if fact_candidates:
+            dedup_decision = await self._judge_duplicate(
+                memory_kind="fact",
+                proposed={
+                    "subject": normalized_subject,
+                    "predicate": normalized_predicate,
+                    "object": object_text,
+                },
+                candidates=fact_candidates,
+            )
+            if dedup_decision == "duplicate":
+                return "Skipped memory fact: semantic duplicate."
+
         await self._memory_client.long_term.add_fact(
             subject=normalized_subject,
             predicate=normalized_predicate,
@@ -281,10 +524,36 @@ class RelationalMemoryStore:
         if not normalized_category or not preference_text:
             return "Skipped preference: category and preference are required."
 
+        normalized_context = context.strip() if isinstance(context, str) and context.strip() else None
+        if await self._exact_preference_exists(
+            category=normalized_category,
+            preference=preference_text,
+            context=normalized_context,
+        ):
+            return "Skipped preference: exact duplicate."
+
+        preference_candidates = await self._semantic_preference_candidates(
+            category=normalized_category,
+            preference=preference_text,
+            context=normalized_context,
+        )
+        if preference_candidates:
+            dedup_decision = await self._judge_duplicate(
+                memory_kind="preference",
+                proposed={
+                    "category": normalized_category,
+                    "preference": preference_text,
+                    "context": normalized_context,
+                },
+                candidates=preference_candidates,
+            )
+            if dedup_decision == "duplicate":
+                return "Skipped preference: semantic duplicate."
+
         await self._memory_client.long_term.add_preference(
             category=normalized_category,
             preference=preference_text,
-            context=context.strip() if isinstance(context, str) and context.strip() else None,
+            context=normalized_context,
             confidence=confidence,
             metadata={
                 "source_kind": source_kind,
@@ -315,31 +584,98 @@ class RelationalMemoryStore:
         if not display_name:
             return "Skipped entity: name is required."
 
-        normalized_type = _normalize_entity_label(entity_type, default="OBJECT") or "OBJECT"
-        normalized_subtype = _normalize_entity_label(subtype) if subtype else None
-        if _normalize_subject(display_name) == "user":
-            display_name = "user"
-            normalized_type = "PERSON"
-            normalized_subtype = normalized_subtype or "INDIVIDUAL"
-
-        await self._memory_client.long_term.add_entity(
-            display_name,
-            normalized_type,
-            subtype=normalized_subtype,
-            description=description.strip() if isinstance(description, str) and description.strip() else None,
-            metadata={
-                "source_kind": source_kind,
-                "source_channel": source_channel,
-                "source_ref": source_ref,
-                "source_note": source_note or "",
-                "source_confidence": confidence,
-            },
-            resolve=True,
-            deduplicate=True,
-            enrich=False,
-            geocode=False,
+        entity, dedup_result = await self._add_entity_and_get_result(
+            name=display_name,
+            entity_type=entity_type,
+            subtype=subtype,
+            description=description,
+            confidence=confidence,
+            source_kind=source_kind,
+            source_channel=source_channel,
+            source_ref=source_ref,
+            source_note=source_note,
         )
-        return f"Stored entity {display_name}."
+        if getattr(dedup_result, "action", None) == "merged":
+            return f"Skipped entity: merged into existing entity {_entity_display_name(entity)}."
+        if getattr(dedup_result, "action", None) == "flagged":
+            return f"Stored entity and flagged possible duplicate for {_entity_display_name(entity)}."
+        return f"Stored entity {_entity_display_name(entity)}."
+
+    async def store_relation(
+        self,
+        *,
+        source_name: str,
+        relation_type: str,
+        target_name: str,
+        source_entity_type: str | None = None,
+        source_subtype: str | None = None,
+        target_entity_type: str | None = None,
+        target_subtype: str | None = None,
+        description: str | None = None,
+        confidence: float = 0.9,
+        source_kind: str = "user",
+        source_channel: str = "unknown",
+        source_ref: str = "",
+        source_note: str | None = None,
+    ) -> str:
+        if not await self.ensure_available() or self._memory_client is None:
+            return "Relational memory is unavailable."
+
+        normalized_relation_type = _normalize_relation_type(relation_type)
+        if not source_name.strip() or not target_name.strip() or not normalized_relation_type:
+            return "Skipped relation: source_name, relation_type, and target_name are required."
+
+        source_entity, _ = await self._add_entity_and_get_result(
+            name=source_name,
+            entity_type=source_entity_type or "OBJECT",
+            subtype=source_subtype,
+            confidence=confidence,
+            source_kind=source_kind,
+            source_channel=source_channel,
+            source_ref=source_ref,
+            source_note=source_note,
+        )
+        target_entity, _ = await self._add_entity_and_get_result(
+            name=target_name,
+            entity_type=target_entity_type or "OBJECT",
+            subtype=target_subtype,
+            confidence=confidence,
+            source_kind=source_kind,
+            source_channel=source_channel,
+            source_ref=source_ref,
+            source_note=source_note,
+        )
+
+        relation_candidates = await self._relation_candidates(
+            source_id=str(source_entity.id),
+            relation_type=normalized_relation_type,
+        )
+        for candidate in relation_candidates:
+            if candidate["target_id"] == str(target_entity.id):
+                return "Skipped relation: exact duplicate."
+
+        if relation_candidates:
+            dedup_decision = await self._judge_duplicate(
+                memory_kind="relation",
+                proposed={
+                    "source_name": _entity_display_name(source_entity),
+                    "relation_type": normalized_relation_type,
+                    "target_name": _entity_display_name(target_entity),
+                    "description": description,
+                },
+                candidates=relation_candidates,
+            )
+            if dedup_decision == "duplicate":
+                return "Skipped relation: semantic duplicate."
+
+        await self._memory_client.long_term.add_relationship(
+            source_entity,
+            target_entity,
+            normalized_relation_type,
+            description=description.strip() if isinstance(description, str) and description.strip() else None,
+            confidence=confidence,
+        )
+        return "Stored relation."
 
 
 @dataclass
@@ -427,6 +763,39 @@ class RelationalMemoryCapability(AbstractCapability):
                 source_note=note,
             )
 
+        @self._toolset.tool
+        async def store_relation(
+            ctx: RunContext,
+            source_name: str,
+            relation_type: str,
+            target_name: str,
+            source_entity_type: str | None = None,
+            source_subtype: str | None = None,
+            target_entity_type: str | None = None,
+            target_subtype: str | None = None,
+            description: str | None = None,
+            confidence: float = 0.9,
+            note: str | None = None,
+        ) -> str:
+            """Store one durable relationship between two named entities."""
+            source_kind = "system" if getattr(ctx.deps, "sender_id", None) == "system_cron" else "user"
+            source_ref = f"{ctx.run_id}:{ctx.deps.channel}:{ctx.deps.chat_id}"
+            return await self.store.store_relation(
+                source_name=source_name,
+                relation_type=relation_type,
+                target_name=target_name,
+                source_entity_type=source_entity_type,
+                source_subtype=source_subtype,
+                target_entity_type=target_entity_type,
+                target_subtype=target_subtype,
+                description=description,
+                confidence=confidence,
+                source_kind=source_kind,
+                source_channel=ctx.deps.channel,
+                source_ref=source_ref,
+                source_note=note,
+            )
+
     def get_instructions(self):
         return (
             "You also have graph memory stored in Neo4j.\n"
@@ -434,6 +803,8 @@ class RelationalMemoryCapability(AbstractCapability):
             "Use `store_fact` for scalar durable facts and identifiers.\n"
             "Use `store_preference` for tastes, interests, favorites, and communication style.\n"
             "Use `store_entity` for named people, organizations, places, events, and durable objects.\n"
+            "Use `store_relation` when durable meaning depends on a relationship between two entities.\n"
+            "Fact, preference, and relation writes check exact matches, semantic candidates, and a fast-model tie-breaker before inserting.\n"
             "SQLite remains the source of conversation history. Neo4j is for durable structured memory only.\n"
             "`MEMORY.md` should stay sparse and hold only the most important anchor objects such as channel IDs, emails, and other critical identifiers."
         )

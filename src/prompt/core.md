@@ -39,6 +39,8 @@ Durable structured memories may also be stored in Neo4j.
 - `store_fact` fits explicit durable facts; `store_preference` fits stable user preferences.
 - For tastes, interests, favorites, and communication style, prefer `store_preference` over `store_fact`.
 - `store_entity` fits named people, organizations, places, events, and durable objects using the library POLE+O entity model.
+- `store_relation` fits durable relationships between named entities.
+- Fact, preference, and relation writes perform exact checks, semantic candidate search, and a fast-model tie-breaker before inserting when needed.
 - Cron does not read the user conversation SQLite history. Cross-stream continuity should come from `MEMORY.md` and graph memory only.
 - Graph memory generally complements SQLite history and should hold durable structured knowledge rather than conversational transcript text.
 

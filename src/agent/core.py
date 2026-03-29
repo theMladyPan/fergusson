@@ -147,7 +147,7 @@ class AgentManager:
         self.relational_memory_store: RelationalMemoryStore | None = None
         capabilities: list[AbstractCapability[AgentDeps]] = []
         if settings.neo4j.is_configured:
-            self.relational_memory_store = RelationalMemoryStore(settings.neo4j)
+            self.relational_memory_store = RelationalMemoryStore(settings.neo4j, fast_model=self.fast_model)
             capabilities.append(
                 RelationalMemoryCapability(
                     store=self.relational_memory_store,
