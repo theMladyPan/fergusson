@@ -1,5 +1,6 @@
-from datetime import datetime
-from pydantic import BaseModel, Field
+from datetime import UTC, datetime
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class TokenUsage(BaseModel):
@@ -15,8 +16,7 @@ class MessageMetadata(BaseModel):
     message_count: int | None = None
 
     # Allow extra fields for other metadata
-    class Config:
-        extra = "allow"
+    model_config = ConfigDict(extra="allow")
 
 
 class InboundMessage(BaseModel):
@@ -27,7 +27,7 @@ class InboundMessage(BaseModel):
     media: list[str] = Field(default_factory=list)
     channel: str  # 'discord', 'cli', 'cron'
     metadata: dict = Field(default_factory=dict)
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class OutboundMessage(BaseModel):
@@ -37,4 +37,4 @@ class OutboundMessage(BaseModel):
     media: list[str] = Field(default_factory=list)
     channel: str
     metadata: MessageMetadata = Field(default_factory=MessageMetadata)
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))

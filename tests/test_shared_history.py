@@ -182,13 +182,14 @@ class _FakeManager:
     def __init__(self):
         self.calls = []
 
-    async def run(self, user_input, history=None, chat_id="cli", channel="cli"):
+    async def run(self, user_input, history=None, chat_id="cli", channel="cli", sender_id=None):
         self.calls.append(
             {
                 "user_input": user_input,
                 "history_len": len(history or []),
                 "chat_id": chat_id,
                 "channel": channel,
+                "sender_id": sender_id,
             }
         )
         return _FakeResult()
@@ -211,7 +212,7 @@ class _FakeBus:
 
 
 class _FailingManager:
-    async def run(self, user_input, history=None, chat_id="cli", channel="cli"):
+    async def run(self, user_input, history=None, chat_id="cli", channel="cli", sender_id=None):
         raise RuntimeError("forced failure")
 
 
@@ -249,6 +250,7 @@ async def test_agent_loop_uses_shared_history_but_preserves_outbound_chat_id(ses
     assert rows[1].metadata_json["transport_chat_id"] == "discord-channel-42"
     assert manager.calls[0]["chat_id"] == "discord-channel-42"
     assert manager.calls[0]["channel"] == "discord"
+    assert manager.calls[0]["sender_id"] == "user-1"
 
 
 @pytest.mark.asyncio

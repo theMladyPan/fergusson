@@ -69,7 +69,11 @@ async def agent_loop(bus: MessageBus, manager: AgentManager, archiver: Archiver)
                     try:
                         # We pass the history to the agent
                         result = await manager.run(
-                            msg.content, history=history, chat_id=msg.chat_id, channel=msg.channel
+                            msg.content,
+                            history=history,
+                            chat_id=msg.chat_id,
+                            channel=msg.channel,
+                            sender_id=msg.sender_id,
                         )
 
                         # 4. Add assistant response to DB

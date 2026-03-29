@@ -389,6 +389,11 @@ Condense findings carefully.
     assert "you MUST call `load_skill_details` before doing substantive work." in prompt
     assert "`load_skill_details` loads only the requested skill." in prompt
     assert "you MUST load that prerequisite skill explicitly before continuing." in prompt
+    assert "Natural default wording" in prompt
+    assert "Avoid admin/report voice for routine chat" in prompt
+    assert "Memory mentions are usually implicit" in prompt
+    assert "user-specific personalization only" in prompt
+    assert "concrete operational identifiers" in prompt
     assert "## Skill: Researcher (`researcher`)" in prompt
     assert "Description: Search the web and summarize findings." in prompt
     assert "Allowed tools: get_content_from_url" in prompt
@@ -409,14 +414,16 @@ async def test_agent_manager_run_passes_usage_limits(monkeypatch):
 
     manager = AgentManager.__new__(AgentManager)
     manager.core_agent = SimpleNamespace(run=fake_run)
+    manager.relational_memory_store = None
 
-    await AgentManager.run(manager, "hello", history=[], chat_id="cli_chat", channel="cli")
+    await AgentManager.run(manager, "hello", history=[], chat_id="cli_chat", channel="cli", sender_id="user-123")
 
     usage_limits = captured["kwargs"]["usage_limits"]
     assert usage_limits.request_limit == settings.agent.request_limit
     assert usage_limits.tool_calls_limit is None
     assert captured["kwargs"]["message_history"] == []
     assert captured["kwargs"]["deps"].chat_id == "cli_chat"
+    assert captured["kwargs"]["deps"].sender_id == "user-123"
 
 
 @pytest.mark.asyncio
@@ -437,6 +444,7 @@ async def test_agent_manager_run_uses_recovery_agent_after_usage_limit():
     manager = AgentManager.__new__(AgentManager)
     manager.core_agent = SimpleNamespace(run=core_run)
     manager.request_limit_recovery_agent = SimpleNamespace(run=recovery_run)
+    manager.relational_memory_store = None
 
     result = await AgentManager.run(manager, "hello", history=[], chat_id="cli_chat", channel="cli")
 
@@ -457,6 +465,7 @@ async def test_agent_manager_run_returns_plain_fallback_if_recovery_agent_fails(
     manager = AgentManager.__new__(AgentManager)
     manager.core_agent = SimpleNamespace(run=core_run)
     manager.request_limit_recovery_agent = SimpleNamespace(run=recovery_run)
+    manager.relational_memory_store = None
 
     result = await AgentManager.run(manager, "hello", history=[], chat_id="cli_chat", channel="cli")
 

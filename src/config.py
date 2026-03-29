@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -74,13 +74,42 @@ class AgentConfig(BaseSettings):
     request_limit: int = Field(..., description="Maximum number of model requests allowed in a single run")
 
 
+class Neo4jConfig(BaseSettings):
+    uri: str | None = None
+    user: str | None = None
+    password: str | None = None
+    database: str | None = None
+    enabled: bool = True
+    model_config = SettingsConfigDict(
+        env_prefix="NEO4J_",
+        env_file=".env",
+        extra="ignore",
+    )
+
+    @field_validator("database", mode="before")
+    @classmethod
+    def blank_database_to_none(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @property
+    def is_configured(self) -> bool:
+        return bool(self.enabled and self.uri and self.user and self.password)
+
+
 class Settings(BaseSettings):
-    discord: DiscordConfig = DiscordConfig()
-    elevenlabs: ElevenLabsConfig = ElevenLabsConfig()
-    agent: AgentConfig = AgentConfig(
-        tool_timeout=30,
-        retries=2,
-        request_limit=20,
+    discord: DiscordConfig = Field(default_factory=DiscordConfig)
+    elevenlabs: ElevenLabsConfig = Field(default_factory=ElevenLabsConfig)
+    neo4j: Neo4jConfig = Field(default_factory=Neo4jConfig)
+    agent: AgentConfig = Field(
+        default_factory=lambda: AgentConfig(
+            tool_timeout=30,
+            retries=2,
+            request_limit=10,
+        )
     )
     max_conversation_history_len: int = Field(
         15,
@@ -93,6 +122,22 @@ class Settings(BaseSettings):
     fast_model: str = Field(
         "google-gla:gemini-3.1-flash-lite-preview",
         description="Fast/utility agent model in native PydanticAI provider:model format",
+    )
+    memory_embedding_provider: str = Field(
+        "google-gla",
+        description="Embedding provider for graph memory (e.g. google-gla, google-vertex)",
+    )
+    memory_embedding_model: str = Field(
+        "gemini-embedding-001",
+        description="Embedding model name for graph memory",
+    )
+    memory_embedding_dimensions: int = Field(
+        1536,
+        description="Embedding vector dimensions used by graph-memory indexes",
+    )
+    memory_fact_dedup_threshold: float = Field(
+        0.85,
+        description="Similarity threshold for semantic fact deduplication",
     )
     shared_history_thread_id: str = Field(
         "main",

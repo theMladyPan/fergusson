@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Optional
 from sqlalchemy import String, DateTime, Text, JSON
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -18,7 +18,7 @@ class Message(Base):
     channel: Mapped[str] = mapped_column(String, default="unknown")  # Origin channel, e.g. 'discord', 'cli'
     role: Mapped[str] = mapped_column(String)  # 'system', 'user', 'assistant'
     content: Mapped[str] = mapped_column(Text)
-    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     metadata_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     is_valid: Mapped[bool] = mapped_column(default=True)
 
@@ -31,6 +31,6 @@ class Summary(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     chat_id: Mapped[str] = mapped_column(String, index=True)  # Canonical shared history thread id
     content: Mapped[str] = mapped_column(Text)
-    timestamp: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(UTC))
     range_start_id: Mapped[Optional[int]] = mapped_column()  # ID of first message covered
     range_end_id: Mapped[Optional[int]] = mapped_column()  # ID of last message covered
