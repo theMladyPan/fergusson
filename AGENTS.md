@@ -7,11 +7,11 @@ Fergusson is a modular AI assistant with an event-driven architecture:
 - **channels** (CLI, Discord, future inputs) receive messages,
 - the **broker** (Redis) distributes them,
 - the **core agent** applies native tools and reusable skills directly,
-- **memory** is layered: one shared SQLite thread for recent conversation, optional Neo4j graph memory for durable structured facts/preferences/entities/relations, and `MEMORY.md` for human-readable long-term notes. Prompt guidance uses tiered memory placement: high-signal anchor facts in `MEMORY.md`, richer structured detail in graph memory, with compact graph-detail references in `MEMORY.md` when relevant. Graph memory is backed by `neo4j-agent-memory` with semantic/exact duplicate suppression. Outbound delivery remains channel-specific.
+- **memory** is layered: one shared SQLite thread for recent conversation, optional Neo4j graph memory for durable structured facts/preferences/entities, and `MEMORY.md` for a tiny set of human-readable anchor identifiers. Prompt guidance uses tiered memory placement: key IDs and similar anchor objects in `MEMORY.md`, richer structured detail in graph memory. Outbound delivery remains channel-specific.
   Graph-memory creation is explicit via core-agent memory tools; there is no separate post-turn extractor agent.
 
 ## 2) Architecture by Directory
-- `src/agent/` — agent core, orchestration, shared-thread memory, Neo4j graph-memory capability, skill loading, archiver. Graph memory uses `neo4j-agent-memory` (long-term facts/preferences/entities/relations), library-style tools (`search_memory`, `get_memory_context`, `store_fact`, `store_preference`, `store_entity`, `store_relation`), custom long-term context assembly for facts + preferences + entities + relationships, semantic dedup for facts/entities, exact dedup for relations, and temporal correction handling (`correction=true` closes previous conflicting facts or relations by setting `valid_until`). Skill loading now returns one requested skill at a time; prerequisites are metadata hints that the agent must load explicitly.
+- `src/agent/` — agent core, orchestration, shared-thread memory, Neo4j graph-memory capability, skill loading, archiver. Graph memory uses `neo4j-agent-memory` as a thin wrapper for long-term facts/preferences/entities with a small tool surface: `search_memory`, `store_fact`, `store_preference`, and `store_entity`. Conversation continuity stays in SQLite; `MEMORY.md` is reserved for sparse anchor identifiers such as channel IDs and emails. Skill loading now returns one requested skill at a time; prerequisites are metadata hints that the agent must load explicitly.
 - `src/broker/` — message bus and message schemas between channels and runtime.
 - `src/channels/` — integration inputs/outputs (e.g., Discord, CLI adapters) that keep transport-specific `chat_id`s for delivery.
 - `src/config.py` — environment-backed runtime settings; model selection uses `SMART_MODEL` / `FAST_MODEL` as PydanticAI `provider:model` strings, Neo4j uses `NEO4J_*` env vars, and memory settings are grouped under `Settings.memory` (`MemoryConfig`) with nested `Settings.memory.embedding` (`EmbeddingConfig`). Memory envs are resolved directly by nested settings classes (for example `MEMORY_EMBEDDING_PROVIDER`). `workspace/config/config.json` remains for non-model app config.
@@ -59,9 +59,9 @@ Before handing off the implementation, check:
 - Model selection no longer comes from `workspace/config/config.json`. New work should use env variables `SMART_MODEL` and `FAST_MODEL` with native PydanticAI `provider:model` strings.
 - Skill registries no longer auto-bundle prerequisite skill bodies. If a skill lists `required_skills`, the agent must call `load_skill_details` separately for each prerequisite it needs.
 - Runtime loop protection now uses a request-count cap (`request_limit`) on the main conversational agent instead of tool-call or token caps by default.
-- Neo4j graph memory is optional. When `NEO4J_URI`, `NEO4J_USER`, and `NEO4J_PASSWORD` are present, the core agent attaches a PydanticAI capability that injects relevant graph-memory context, exposes memory read/write tools, and suppresses duplicate writes with exact + semantic checks.
+- Neo4j graph memory is optional. When `NEO4J_URI`, `NEO4J_USER`, and `NEO4J_PASSWORD` are present, the core agent attaches a PydanticAI capability that injects relevant graph-memory context and exposes a small library-backed read/write surface for durable facts, preferences, and entities.
 - Memory embeddings use PydanticAI embedder models configured via env (`MEMORY_EMBEDDING_PROVIDER`, `MEMORY_EMBEDDING_MODEL`, `MEMORY_EMBEDDING_DIMENSIONS`). Current default is Google Gemini embeddings (`google-gla:gemini-embedding-001`).
-- Memory quality is controlled by explicit tool usage policy plus storage integrity checks (dedup, correction, provenance), not a hardcoded predicate whitelist.
+- Memory quality is controlled mainly by explicit tool usage policy and keeping the repo wrapper thin. The repository does not implement custom relation semantics or correction workflows.
 
 
 ## ExecPlans

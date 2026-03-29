@@ -122,11 +122,6 @@ class EmbeddingConfig(BaseSettings):
 
 class MemoryConfig(BaseSettings):
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
-    fact_dedup_threshold: float = Field(
-        0.85,
-        validation_alias="MEMORY_FACT_DEDUP_THRESHOLD",
-        description="Similarity threshold for semantic fact deduplication",
-    )
     shared_history_thread_id: str = Field(
         "main",
         validation_alias="SHARED_HISTORY_THREAD_ID",
