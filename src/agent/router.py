@@ -61,6 +61,8 @@ ANSWER directly (action="answer") ONLY for simple, plain requests such as:
 
 ESCALATE (action="escalate") for anything that needs:
 - File writes/edits, multi-step tool chains, skills, bash, or URL content fetch.
+- Audio handling, including speech transcription or synthesis; the Core Agent has
+  dedicated STT/TTS tools that must be used instead of shell commands.
 - Long reasoning, code generation, planning, or deep analysis.
 - A cron/routine check that surfaces a concrete action to take (send a reminder,
   update a file/schedule, run a task, notify a channel, fix something). Only

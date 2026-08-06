@@ -73,10 +73,50 @@ async def test_transcribe_audio_raises_model_retry_when_stt_returns_none(monkeyp
         await transcribe_audio(str(audio))
 
 
-def test_transcribe_audio_registered_in_all_tools():
-    from src.tools import all_tools, transcribe_audio
+@pytest.mark.asyncio
+async def test_synthesize_speech_returns_generated_audio_path(monkeypatch, tmp_path):
+    generated_audio = tmp_path / "reply.mp3"
+    captured: dict[str, str | None] = {}
+
+    async def fake_tts(text: str, language: str | None = None) -> str | None:
+        captured["text"] = text
+        captured["language"] = language
+        return str(generated_audio)
+
+    monkeypatch.setattr("src.tools.audio.text_to_speech", fake_tts)
+
+    from src.tools.audio import synthesize_speech
+
+    assert await synthesize_speech("Ahoj", language="sk") == str(generated_audio)
+    assert captured == {"text": "Ahoj", "language": "sk"}
+
+
+@pytest.mark.asyncio
+async def test_synthesize_speech_rejects_empty_text():
+    from src.tools.audio import synthesize_speech
+
+    with pytest.raises(ModelRetry, match="text is empty"):
+        await synthesize_speech("   ")
+
+
+@pytest.mark.asyncio
+async def test_synthesize_speech_raises_model_retry_when_tts_returns_none(monkeypatch):
+    async def fake_tts(_text: str, language: str | None = None) -> str | None:
+        return None
+
+    monkeypatch.setattr("src.tools.audio.text_to_speech", fake_tts)
+
+    from src.tools.audio import synthesize_speech
+
+    with pytest.raises(ModelRetry, match="Speech synthesis unavailable"):
+        await synthesize_speech("Hello")
+
+
+def test_audio_tools_registered_in_all_tools():
+    from src.tools import all_tools, synthesize_speech, transcribe_audio
 
     assert transcribe_audio in all_tools
+    assert synthesize_speech in all_tools
 
 
 @pytest.mark.asyncio

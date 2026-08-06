@@ -257,17 +257,42 @@ class AgentManager:
             )
 
         @self.core_agent.tool_plain
-        async def send_message_to_channel(channel: str, message: str, chat_id: str) -> str:
-            """
-            Sends a message proactively to a specific channel and chat_id (e.g., discord, cli).
-            Use get_recent_chats to find the correct chat_id if you don't know it.
+        async def send_message_to_channel(
+            channel: str,
+            message: str,
+            chat_id: str,
+            media_paths: list[str] | None = None,
+        ) -> str:
+            """Send a proactive message and optional media files to a channel.
+
+            Use `get_recent_chats` to find the channel and chat ID when needed.
+            For a voice message, call `synthesize_speech` first and pass its
+            returned MP3 path through `media_paths`.
+
+            Args:
+                channel: Destination channel, such as `discord` or `cli`.
+                message: Text content; it may be empty when media is attached.
+                chat_id: Transport-specific destination chat ID.
+                media_paths: Optional paths of files to attach.
+
+            Returns:
+                Delivery confirmation.
+
+            Raises:
+                ModelRetry: If an attachment does not exist.
             """
             from src.broker.schemas import OutboundMessage
+
+            attachments = media_paths or []
+            missing_attachments = [path for path in attachments if not Path(path).is_file()]
+            if missing_attachments:
+                raise ModelRetry(f"Cannot send missing media files: {', '.join(missing_attachments)}")
 
             reply = OutboundMessage(
                 chat_id=chat_id,
                 content=message,
                 channel=channel,
+                media=attachments,
             )
             await self.bus.publish_outbound(reply)
             return f"Message successfully sent to {channel} (chat_id: {chat_id})"

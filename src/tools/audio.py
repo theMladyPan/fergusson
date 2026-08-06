@@ -1,19 +1,16 @@
-"""Audio transcription tool for the core agent.
+"""Native speech tools for the core agent.
 
-Wraps the Chirp 3 STT service (`src.services.chirp3.speech_to_text`) so the
-agent can transcribe an audio file on demand, instead of shelling out to
-whisper/ffmpeg/pip via bash. Used as a fallback when the pre-pipeline STT in
-`runners.py` did not run or failed, or when the user explicitly asks to
-transcribe a clip.
-
-The tool fails fast via `ModelRetry` when STT is unconfigured or the request
-errors, so the agent surfaces the problem to the user instead of improvising.
+Wraps Chirp 3 STT and Cartesia TTS so the agent can transcribe and synthesize
+speech without shelling out to bash or ad-hoc Python commands. Both tools fail
+fast via `ModelRetry` when their service is unavailable, preventing the agent
+from improvising an unsupported local audio workflow.
 """
 
 from pathlib import Path
 
 from pydantic_ai import ModelRetry
 
+from src.services.cartesia import text_to_speech
 from src.services.chirp3 import speech_to_text
 
 
@@ -45,3 +42,34 @@ async def transcribe_audio(path: str) -> str:
             "Tell the user you could not transcribe the voice message."
         )
     return transcript
+
+
+async def synthesize_speech(text: str, language: str | None = None) -> str:
+    """Synthesize text to an MP3 file using Cartesia text-to-speech.
+
+    Use this tool whenever the user requests generated speech or an audio reply.
+    Do not invoke Cartesia through bash or write an ad-hoc Python script. To send
+    the generated file to a channel, pass the returned path to
+    `send_message_to_channel` through its `media_paths` argument.
+
+    Args:
+        text: Text to convert to speech.
+        language: Optional two-letter ISO 639-1 language code, such as `sk` or
+            `en`. Omit it to use configured language detection.
+
+    Returns:
+        Path to the generated MP3 file.
+
+    Raises:
+        ModelRetry: If text is empty, TTS is unconfigured, or synthesis fails.
+    """
+    if not text.strip():
+        raise ModelRetry("Speech synthesis unavailable: text is empty.")
+
+    generated_audio_path = await text_to_speech(text, language=language)
+    if not generated_audio_path:
+        raise ModelRetry(
+            "Speech synthesis unavailable: Cartesia TTS is not configured or the request failed. "
+            "Tell the user you could not generate the audio; do not use bash or Python as a fallback."
+        )
+    return generated_audio_path

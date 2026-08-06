@@ -1,6 +1,6 @@
 """Builtin tools of the agent."""
 
-from src.tools.audio import transcribe_audio
+from src.tools.audio import synthesize_speech, transcribe_audio
 from src.tools.bash import run_bash_command
 from src.tools.exa import web_search
 from src.tools.fs import (
@@ -25,4 +25,5 @@ all_tools = [
     get_content_from_url,
     web_search,
     transcribe_audio,
+    synthesize_speech,
 ]

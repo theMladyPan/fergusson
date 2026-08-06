@@ -7,7 +7,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.agent.deps import AgentDeps
-from src.agent.router import RouteDecision, RouterAgent, RoutedResult
+from src.agent.router import ROUTER_INSTRUCTIONS, RouteDecision, RouterAgent, RoutedResult
 from src.config import Settings
 
 
@@ -40,6 +40,10 @@ def test_router_model_env_override(monkeypatch):
     monkeypatch.setenv("ROUTER_MODEL", "google-gla:gemini-3.6-flash")
     settings = Settings(_env_file=None)
     assert settings.router_model == "google-gla:gemini-3.6-flash"
+
+
+def test_router_escalates_speech_tool_requests():
+    assert "speech transcription or synthesis" in ROUTER_INSTRUCTIONS
 
 
 @pytest.mark.asyncio
