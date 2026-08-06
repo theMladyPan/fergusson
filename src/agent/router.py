@@ -55,10 +55,16 @@ ANSWER directly (action="answer") ONLY for simple, plain requests such as:
 - Factual recall, short rephrasings, clarifications.
 - Questions you can fully resolve with at most one quick read-only lookup using
   read_file_content or web_search.
+- Routine/cron check-ins that surface no actionable item (no reminder to send,
+  no file to update, no schedule to change, no task to run). These are
+  informational status checks only — answer briefly and do not escalate.
 
 ESCALATE (action="escalate") for anything that needs:
 - File writes/edits, multi-step tool chains, skills, bash, or URL content fetch.
 - Long reasoning, code generation, planning, or deep analysis.
+- A cron/routine check that surfaces a concrete action to take (send a reminder,
+  update a file/schedule, run a task, notify a channel, fix something). Only
+  escalate when there is real work to do — not for every routine check.
 - Anything you are not confident you can fully and quickly resolve.
 
 Rules:
