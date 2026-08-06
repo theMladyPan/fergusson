@@ -23,3 +23,4 @@ class AgentDeps:
     channel: str
     history_thread_id: str
     sender_id: str | None = None
+    router_context: str | None = None

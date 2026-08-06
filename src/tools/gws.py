@@ -218,18 +218,31 @@ async def list_inbox_emails(limit: int = 10, summarize: bool = False) -> str:
         sender = _pick(item, "from", "sender")
         subject = _pick(item, "subject")
         date = _pick(item, "date", "internalDate")
-        snippet = _pick(item, "snippet")
-        msg_id = _pick(item, "id", "messageId")
         lines.append(f"{i}. {sender} — {subject}  ({date})")
-        if summarize and msg_id:
+
+    if summarize:
+        # Fetch bodies + summarize in parallel (one round trip per email is the
+        # bottleneck; running them concurrently keeps the summarize path fast).
+        async def _email_summary(item: dict, fallback: str) -> str:
+            msg_id = _pick(item, "id", "messageId")
+            if not msg_id:
+                return fallback
             body = await _read_message_body(msg_id)
             summary = await _summarize(
-                f"From: {sender}\nSubject: {subject}\n\n{body}",
+                f"From: {_pick(item, 'from', 'sender')}\nSubject: {_pick(item, 'subject')}\n\n{body}",
                 "Summarize this email in 2-3 sentences, focusing on what the sender wants and any action needed.",
             )
-            lines.append(f"   Summary: {summary if summary else snippet}")
-        elif snippet:
-            lines.append(f"   {snippet}")
+            return summary if summary else fallback
+
+        snippets = [_pick(item, "snippet") for item in items]
+        summaries = await asyncio.gather(*(_email_summary(it, snip) for it, snip in zip(items, snippets)))
+        for i, summary in enumerate(summaries, 1):
+            lines.append(f"   Summary: {summary}")
+    else:
+        for i, item in enumerate(items, 1):
+            snippet = _pick(item, "snippet")
+            if snippet:
+                lines.append(f"   {snippet}")
     return "\n".join(lines)
 
 
@@ -281,14 +294,9 @@ async def get_contact(query: str, kind: str = "email") -> str:
             return f"No email addresses found in {len(items)} threads for '{query}'."
         return f"Emails for '{query}' (from {len(items)} threads): {', '.join(unique)}"
 
-    # phone: mine bodies
-    bodies = []
-    for item in items[:3]:
-        msg_id = _pick(item, "id", "messageId")
-        if msg_id:
-            body = await _read_message_body(msg_id)
-            if body:
-                bodies.append(body)
+    # phone: mine bodies in parallel
+    msg_ids = [_pick(item, "id", "messageId") for item in items[:3] if _pick(item, "id", "messageId")]
+    bodies = [b for b in await asyncio.gather(*(_read_message_body(mid) for mid in msg_ids)) if b]
     if not bodies:
         return f"No readable message bodies for '{query}' to scan for a phone number."
     extracted = await _summarize(
@@ -322,6 +330,19 @@ async def list_upcoming_events(days: int = 7, summarize: bool = False) -> str:
         return f"No upcoming events in the next {days} days."
 
     lines = [f"Upcoming events (next {days} days):"]
+
+    # Summarize in parallel before building blocks so summaries interleave per event.
+    if summarize:
+        async def _event_summary(item: dict) -> str | None:
+            return await _summarize(
+                f"Title: {_pick(item, 'summary')}\nLocation: {_pick(item, 'location')}\nDescription: {_pick(item, 'description')}",
+                "Summarize this calendar event in one sentence.",
+            )
+
+        summaries = await asyncio.gather(*(_event_summary(it) for it in items))
+    else:
+        summaries = [None] * len(items)
+
     for i, item in enumerate(items, 1):
         summary_text = _pick(item, "summary")
         start = _pick(item, "start")
@@ -344,14 +365,8 @@ async def list_upcoming_events(days: int = 7, summarize: bool = False) -> str:
             lines.append(f"   Location: {location}")
         if attendees:
             lines.append(f"   Attendees: {', '.join(attendees)}")
-        if summarize:
-            body = _pick(item, "description")
-            summary = await _summarize(
-                f"Title: {summary_text}\nLocation: {location}\nDescription: {body}",
-                "Summarize this calendar event in one sentence.",
-            )
-            if summary:
-                lines.append(f"   Summary: {summary}")
+        if summaries[i - 1]:
+            lines.append(f"   Summary: {summaries[i - 1]}")
     return "\n".join(lines)
 
 
@@ -385,16 +400,16 @@ async def search_drive_docs(query: str, limit: int = 10) -> str:
         return f"No Drive documents found for '{query}'."
 
     lines = [f"Drive results for '{query}' ({len(files)}):"]
-    for i, f in enumerate(files, 1):
+    # Export + summarize each doc in parallel (export is the bottleneck).
+    summaries = await asyncio.gather(*(_summarize_drive_doc(_pick(f, "id"), _pick(f, "mimeType")) for f in files))
+    for i, (f, summary) in enumerate(zip(files, summaries), 1):
         name = _pick(f, "name")
         mime = _pick(f, "mimeType")
         modified = _pick(f, "modifiedTime")
         link = _pick(f, "webViewLink")
-        file_id = _pick(f, "id")
         lines.append(f"{i}. {name} ({mime}, modified {modified})")
         if link:
             lines.append(f"   Link: {link}")
-        summary = await _summarize_drive_doc(file_id, mime)
         if summary:
             lines.append(f"   Summary: {summary}")
         else:

@@ -457,6 +457,7 @@ async def test_agent_manager_run_returns_router_clarify_without_core_agent():
                     reply="Chceš emaily pre themladypan@gmail.com z inboxu alebo len neprečítané?",
                 ),
                 SimpleNamespace(input_tokens=1, output_tokens=1),
+                None,
             )
 
     manager = AgentManager.__new__(AgentManager)
@@ -468,6 +469,36 @@ async def test_agent_manager_run_returns_router_clarify_without_core_agent():
 
     assert core_called["count"] == 0
     assert result.output == "Chceš emaily pre themladypan@gmail.com z inboxu alebo len neprečítané?"
+
+
+@pytest.mark.asyncio
+async def test_agent_manager_run_passes_router_context_to_core_agent():
+    """On escalate, the router's gathered tool results must be injected into
+    AgentDeps.router_context so the Core Agent can continue without redoing reads."""
+    from src.agent.router import RouteDecision
+
+    captured = {}
+
+    async def core_run(user_input, **kwargs):
+        captured["deps"] = kwargs.get("deps")
+        return SimpleNamespace(output="core reply")
+
+    class _FakeRouter:
+        async def route(self, user_input, history, deps):
+            return (
+                RouteDecision(action="escalate", reply=""),
+                SimpleNamespace(input_tokens=1, output_tokens=1),
+                "[list_inbox_emails] Inbox (2 emails): ...",
+            )
+
+    manager = AgentManager.__new__(AgentManager)
+    manager.core_agent = SimpleNamespace(run=core_run)
+    manager.router = _FakeRouter()
+    manager.relational_memory_store = None
+
+    await AgentManager.run(manager, "check my inbox", history=[], chat_id="cli_chat", channel="cli")
+
+    assert captured["deps"].router_context == "[list_inbox_emails] Inbox (2 emails): ..."
 
 
 @pytest.mark.asyncio

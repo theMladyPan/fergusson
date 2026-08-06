@@ -29,6 +29,8 @@ from pydantic_ai.tools import Tool
 from pydantic_ai.usage import UsageLimits
 
 from src.agent.deps import AgentDeps
+from pydantic_ai.messages import ModelRequest, ToolReturnPart
+
 from src.config import settings
 from src.tools.exa import _exa_search
 from src.tools.fs import read_file_content
@@ -135,6 +137,23 @@ async def _router_web_search(query: str) -> str:
     return await _exa_search(query, settings.exa.router_search_type, settings.exa.num_results)
 
 
+def _extract_tool_returns(messages: list) -> str | None:
+    """Join the content of every ``ToolReturnPart`` produced this router turn.
+
+    Used to carry the router's read-only tool results into the Core Agent on
+    escalation so the smart model can continue instead of re-fetching. Returns
+    ``None`` when the router used no tools.
+    """
+    parts: list[str] = []
+    for msg in messages:
+        if isinstance(msg, ModelRequest):
+            for p in msg.parts:
+                if isinstance(p, ToolReturnPart):
+                    content = p.content if isinstance(p.content, str) else str(p.content)
+                    parts.append(f"[{p.tool_name}] {content}")
+    return "\n\n".join(parts) if parts else None
+
+
 @dataclass
 class RoutedResult:
     """Minimal result shim exposing the attributes runners.py consumes.
@@ -185,12 +204,18 @@ class RouterAgent:
         user_input: str,
         history: list | None,
         deps: AgentDeps,
-    ) -> tuple[RouteDecision, Any]:
-        """Run the router and return (decision, usage).
+    ) -> tuple[RouteDecision, Any, str | None]:
+        """Run the router and return (decision, usage, router_context).
+
+        ``router_context`` is the text of tool results the router gathered this
+        turn (from `ToolReturnPart`s). On escalate the caller injects it into the
+        Core Agent's system prompt so the smart model can continue from the
+        router's reads instead of redoing them. It is ``None`` when the router
+        used no tools or on failure.
 
         Any failure (tool error, timeout, invalid output, usage limit) is logged
-        and converted into an ``escalate`` decision with empty usage, so the
-        caller always falls back to the full core agent.
+        and converted into an ``escalate`` decision with empty usage/None context,
+        so the caller always falls back to the full core agent.
 
         Args:
             user_input: The latest user message text.
@@ -200,7 +225,7 @@ class RouterAgent:
             deps: AgentDeps for the current turn.
 
         Returns:
-            A tuple of (RouteDecision, usage-object-or-None).
+            A tuple of (RouteDecision, usage-object-or-None, router_context-or-None).
         """
         # Keep the router cheap: feed only the tail of the conversation.
         window = settings.router.history_window
@@ -217,8 +242,9 @@ class RouterAgent:
                 decision: RouteDecision = result.output
                 span.set_attributes({"router.action": decision.action})
                 logfire.info("router.decision", action=decision.action)
-                return decision, result.usage()
+                router_context = _extract_tool_returns(result.all_messages())
+                return decision, result.usage(), router_context
         except Exception as exc:
             # Fail fast into escalation. Escalating is always safe.
             logfire.warning(f"Router failed, escalating to core agent: {exc}")
-            return RouteDecision(action="escalate", reply=""), None
+            return RouteDecision(action="escalate", reply=""), None, None

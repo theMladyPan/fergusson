@@ -85,6 +85,51 @@ async def test_list_inbox_emails_summarize_fetches_bodies(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_list_inbox_emails_summarize_runs_in_parallel(monkeypatch):
+    """Body fetches for summarize=True must run concurrently, not sequentially."""
+    import asyncio as _asyncio
+    triage = json.dumps([
+        {"id": "m1", "from": "a@x.com", "subject": "S1", "date": "d", "snippet": "s"},
+        {"id": "m2", "from": "b@x.com", "subject": "S2", "date": "d", "snippet": "s"},
+        {"id": "m3", "from": "c@x.com", "subject": "S3", "date": "d", "snippet": "s"},
+    ])
+    peak = 0
+    inflight = 0
+    lock = _asyncio.Lock()
+
+    async def tracked_body(args, timeout=None):
+        nonlocal peak, inflight
+        async with lock:
+            inflight += 1
+            peak = max(peak, inflight)
+        await _asyncio.sleep(0.05)
+        async with lock:
+            inflight -= 1
+        return "BODY"
+
+    async def triage_only(args, timeout=None):
+        return triage
+
+    run = AsyncMock(side_effect=triage_only)
+    # First call is triage; subsequent calls (body reads) go through tracked_body.
+    call_indices = {0}
+    original_run = gws_mod._run_gws
+
+    async def dispatch(args, timeout=None):
+        # Heuristic: triage command contains "+triage"; body read contains "+read".
+        if "+triage" in args:
+            return await triage_only(args, timeout)
+        return await tracked_body(args, timeout)
+
+    monkeypatch.setattr(gws_mod, "_run_gws", dispatch)
+    _patch_summarize(monkeypatch, "summary")
+
+    await list_inbox_emails(limit=3, summarize=True)
+
+    assert peak >= 2, f"body reads were sequential (peak concurrency={peak})"
+
+
+@pytest.mark.asyncio
 async def test_list_inbox_emails_empty(monkeypatch):
     _patch_run(monkeypatch, "[]")
     assert await list_inbox_emails() == "Inbox is empty."

@@ -294,7 +294,7 @@ class Settings(BaseSettings):
         ),
     )
     summary_reasoning_effort: str = Field(
-        "medium",
+        "low",
         description=(
             "Reasoning effort for the summary model. Only applied when summary_model is an "
             "openrouter:* model. One of: xhigh, high, medium, low, minimal, none."

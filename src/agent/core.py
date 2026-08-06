@@ -218,12 +218,20 @@ class AgentManager:
 
         @self.core_agent.system_prompt
         def dynamic_context_prompt(ctx: RunContext[AgentDeps]) -> str:
-            return (
+            parts = [
                 "\n\nCURRENT CONTEXT:\n"
                 f"You are currently operating in channel: '{ctx.deps.channel}' and chat_id: '{ctx.deps.chat_id}'. "
                 f"This turn is using short-term history thread: '{ctx.deps.history_thread_id}'. "
                 "Cron history is separate from user chat history."
-            )
+            ]
+            router_context = getattr(ctx.deps, "router_context", None)
+            if router_context:
+                parts.append(
+                    "\n\nROUTER CONTEXT (the cheap router already gathered this via read-only tools; "
+                    "reuse it and do not re-call those tools unless the data is stale):\n"
+                    + router_context
+                )
+            return "".join(parts)
 
         @self.request_limit_recovery_agent.system_prompt
         def dynamic_recovery_context_prompt(ctx: RunContext[AgentDeps]) -> str:
@@ -343,14 +351,18 @@ class AgentManager:
         # Stage 1: cheap router. Skipped entirely when routing is disabled.
         # getattr guards against partial construction (e.g. unit tests using __new__).
         if getattr(self, "router", None) is not None:
-            decision, router_usage = await self.router.route(user_input, history, deps)
+            decision, router_usage, router_context = await self.router.route(user_input, history, deps)
             if decision.action in ("answer", "clarify"):
                 # Both return the router's reply directly. "clarify" carries a
                 # disambiguation question instead of a final answer; either way no
                 # smart-model cost is incurred.
                 # this result is consumed by runners.py via .output and .usage()
                 return RoutedResult(output=decision.reply, _usage=router_usage)
-            # action == "escalate": fall through to the full core agent.
+            # action == "escalate": pass the router's gathered tool results to the
+            # Core Agent so it can continue instead of redoing the reads.
+            if router_context:
+                deps.router_context = router_context
+            # fall through to the full core agent.
 
         try:
             return await self.core_agent.run(
