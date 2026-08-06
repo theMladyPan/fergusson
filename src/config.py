@@ -221,6 +221,22 @@ class MemoryConfig(BaseSettings):
     )
 
 
+class GwsConfig(BaseModel):
+    """Settings for the native Google Workspace (`gws`) CLI tools.
+
+    These tools shell out to the `gws` binary with a sanitized environment (the
+    STT service-account ADC is stripped) and use `summary_model` for flash-lite
+    summaries of emails, calendar events, and Drive documents.
+    """
+
+    binary: str = Field("gws", description="Path/name of the gws CLI binary")
+    tool_timeout: int = Field(30, description="Per-gws-subprocess timeout in seconds")
+    export_char_limit: int = Field(
+        8000, description="Max chars of a Drive/bemail body sent to the summary model"
+    )
+    model_config = ConfigDict(env_prefix="GWS_")
+
+
 class RouterConfig(BaseModel):
     """Tunable limits for the auto-routing router agent.
 
@@ -267,6 +283,22 @@ class Settings(BaseSettings):
         "google-gla:gemini-3.5-flash-lite",
         description="Cheap first-stage router model in native PydanticAI provider:model format",
     )
+    summary_model: str = Field(
+        "openrouter:openai/gpt-oss-20b:nitro",
+        description=(
+            "Model used for flash-lite summaries in Google Workspace tools, in native "
+            "PydanticAI provider:model format. Default routes gpt-oss-20b through OpenRouter "
+            "nitro (throughput-priority) to the fastest provider."
+        ),
+    )
+    summary_reasoning_effort: str = Field(
+        "medium",
+        description=(
+            "Reasoning effort for the summary model. Only applied when summary_model is an "
+            "openrouter:* model. One of: xhigh, high, medium, low, minimal, none."
+        ),
+    )
+    gws: GwsConfig = Field(default_factory=GwsConfig)
     redis_host: str = "localhost"
     redis_port: int = 6379
     logfire_token: str | None = None

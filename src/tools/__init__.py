@@ -11,6 +11,13 @@ from src.tools.fs import (
     read_file_segment,
     replace_file_segment,
 )
+from src.tools.gws import (
+    create_calendar_event,
+    get_contact,
+    list_inbox_emails,
+    list_upcoming_events,
+    search_drive_docs,
+)
 from src.tools.web_tools import get_content_from_url
 
 
@@ -26,4 +33,10 @@ all_tools = [
     web_search,
     transcribe_audio,
     synthesize_speech,
+    # Google Workspace native tools (read tools also on the router).
+    list_inbox_emails,
+    get_contact,
+    list_upcoming_events,
+    search_drive_docs,
+    create_calendar_event,
 ]

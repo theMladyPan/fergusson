@@ -32,6 +32,7 @@ from src.agent.deps import AgentDeps
 from src.config import settings
 from src.tools.exa import _exa_search
 from src.tools.fs import read_file_content
+from src.tools.gws import get_contact, list_inbox_emails, list_upcoming_events, search_drive_docs
 
 
 class RouteDecision(BaseModel):
@@ -68,6 +69,19 @@ ANSWER directly (action="answer") ONLY for simple, plain requests such as:
 - Routine/cron check-ins that surface no actionable item (no reminder to send,
   no file to update, no schedule to change, no task to run). These are
   informational status checks only — answer briefly and do not escalate.
+
+You also have read-only Google Workspace tools (Gmail, Calendar, Drive). Use
+them to answer or prepare context directly and cheaply:
+- `list_inbox_emails(limit, summarize)` — recent inbox (summarize=True is slow;
+  use only when the user wants email body summaries).
+- `get_contact(query, kind)` — find an email address or phone number for a
+  person by mining email threads.
+- `list_upcoming_events(days, summarize)` — upcoming calendar agenda.
+- `search_drive_docs(query, limit)` — Drive search with one-sentence doc summaries.
+These reads are cheap; use them to answer directly when the user just wants a
+quick inbox scan, agenda, contact lookup, or file search. Any WRITE (create/
+invite an event, send mail, modify files) must ESCALATE — the Core Agent holds
+those tools. If a read tool fails (auth/timeout), do not retry — escalate.
 
 CLARIFY (action="clarify") when the request is too vague to act on confidently.
 Ask ONE concise clarifying question in the user's language and, when possible,
@@ -157,6 +171,12 @@ class RouterAgent:
                     name="web_search",
                     description="Search the web via Exa and return a compact digest of relevant excerpts.",
                 ),
+                # Read-only Google Workspace tools so the router can answer and
+                # prepare context cheaply. Writes stay on the Core Agent.
+                list_inbox_emails,
+                get_contact,
+                list_upcoming_events,
+                search_drive_docs,
             ],
         )
 
