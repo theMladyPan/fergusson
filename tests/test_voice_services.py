@@ -130,6 +130,8 @@ async def test_tts_writes_mp3_on_happy_path(monkeypatch, tmp_path):
     assert captured["kwargs"]["voice"] == {"mode": "id", "id": "v-1"}
     assert captured["kwargs"]["output_format"]["container"] == "mp3"
     assert captured["kwargs"]["output_format"]["bit_rate"] == 128000
+    # No language passed -> Cartesia auto-detects.
+    assert "language" not in captured["kwargs"]
 
     # ensure media dir was created under the workspace
     assert Path(result).parent == (tmp_path / "media")
@@ -160,6 +162,118 @@ async def test_tts_returns_none_on_sdk_error(monkeypatch, tmp_path):
     from src.services.cartesia import text_to_speech
 
     assert await text_to_speech("x") is None
+
+
+def test_cartesia_config_language_default_none(monkeypatch):
+    monkeypatch.delenv("CARTESIA_LANGUAGE", raising=False)
+    s = Settings(_env_file=None)
+    assert s.cartesia.language is None
+
+
+def test_cartesia_config_language_env_override(monkeypatch):
+    monkeypatch.setenv("CARTESIA_LANGUAGE", "sk")
+    s = Settings(_env_file=None)
+    assert s.cartesia.language == "sk"
+
+
+@pytest.mark.asyncio
+async def test_tts_forwards_explicit_language_to_cartesia(monkeypatch, tmp_path):
+    from src.config import Settings
+
+    monkeypatch.setenv("CARTESIA_API_KEY", "ck")
+    monkeypatch.setenv("CARTESIA_VOICE_ID", "v-1")
+    settings = Settings(_env_file=None)
+    settings = settings.model_copy(update={"workspace_folder": tmp_path})
+    monkeypatch.setattr("src.services.cartesia.settings", settings)
+
+    captured: dict = {}
+
+    class _Response:
+        async def write_to_file(self, path):
+            Path(path).write_bytes(b"ID3mp3data")
+
+    class _TTS:
+        async def generate(self, **kwargs):
+            captured["kwargs"] = kwargs
+            return _Response()
+
+    class _Client:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def __aenter__(self):
+            self.tts = _TTS()
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+    monkeypatch.setitem(sys.modules, "cartesia", SimpleNamespace(AsyncCartesia=_Client))
+
+    from src.services.cartesia import text_to_speech
+
+    result = await text_to_speech("Ahoj, som tu.", language="sk")
+    assert result is not None
+    assert captured["kwargs"]["language"] == "sk"
+
+
+@pytest.mark.asyncio
+async def test_tts_uses_configured_default_language_when_arg_missing(monkeypatch, tmp_path):
+    from src.config import Settings
+
+    monkeypatch.setenv("CARTESIA_API_KEY", "ck")
+    monkeypatch.setenv("CARTESIA_VOICE_ID", "v-1")
+    monkeypatch.setenv("CARTESIA_LANGUAGE", "sk")
+    settings = Settings(_env_file=None)
+    settings = settings.model_copy(update={"workspace_folder": tmp_path})
+    monkeypatch.setattr("src.services.cartesia.settings", settings)
+
+    captured: dict = {}
+
+    class _Response:
+        async def write_to_file(self, path):
+            Path(path).write_bytes(b"ID3mp3data")
+
+    class _TTS:
+        async def generate(self, **kwargs):
+            captured["kwargs"] = kwargs
+            return _Response()
+
+    class _Client:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def __aenter__(self):
+            self.tts = _TTS()
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+    monkeypatch.setitem(sys.modules, "cartesia", SimpleNamespace(AsyncCartesia=_Client))
+
+    from src.services.cartesia import text_to_speech
+
+    result = await text_to_speech("Ahoj")
+    assert result is not None
+    assert captured["kwargs"]["language"] == "sk"
+
+
+def test_dubbing_result_model():
+    from src.agent.voice import DubbingResult
+
+    r = DubbingResult(spoken_text="Ahoj, som tu.", language="sk")
+    assert r.spoken_text == "Ahoj, som tu."
+    assert r.language == "sk"
+
+
+def test_dubbing_agent_returns_structured_result():
+    from src.agent.voice import get_dubbing_agent, DubbingResult
+    from pydantic_ai import Agent
+
+    agent = get_dubbing_agent(model="google-gla:gemini-3.5-flash-lite")
+    assert isinstance(agent, Agent)
+    assert agent._output_type is DubbingResult
 
 
 # --- Chirp 3 STT -----------------------------------------------------------

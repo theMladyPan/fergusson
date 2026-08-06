@@ -122,9 +122,10 @@ async def agent_loop(bus: MessageBus, manager: AgentManager, archiver: Archiver)
                             dubbing_agent = get_dubbing_agent(manager.fast_model)
                             with logfire.span("Rewriting response for voice dubbing"):
                                 dub_result = await dubbing_agent.run(f"Rewrite this for voice:\n\n{result.output}")
-                                spoken_text = dub_result.output
+                                spoken_text = dub_result.output.spoken_text
+                                voice_language = dub_result.output.language
 
-                            generated_audio = await text_to_speech(spoken_text)
+                            generated_audio = await text_to_speech(spoken_text, language=voice_language)
                             if generated_audio:
                                 outbound_media.append(generated_audio)
                         # --------------------------------------------

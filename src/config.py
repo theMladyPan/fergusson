@@ -67,6 +67,10 @@ class CartesiaConfig(BaseSettings):
     api_key: str | None = None
     voice_id: str | None = None
     model_id: str = "sonic-3.5"
+    # Optional default language (two-letter ISO 639-1, e.g. "sk", "en"). When
+    # None, the dubbing agent's per-turn `language` is used, falling back to
+    # Cartesia auto-detect if that is also missing.
+    language: str | None = None
     # mp3 output: container + bit_rate. sample_rate is required for mp3 too.
     sample_rate: int = 24000
     bit_rate: int = 128000
