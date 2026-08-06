@@ -322,8 +322,10 @@ class AgentManager:
         """Runs the agent loop with an optional auto-routing first stage.
 
         When routing is enabled, a cheap router model first classifies the turn:
-        - action="answer"  -> the router's reply is returned directly (no smart
-          model cost, no tool loop). History/usage are shimmed into a RoutedResult.
+        - action="answer" or action="clarify"  -> the router's reply is returned
+          directly (no smart model cost, no tool loop). "clarify" carries a
+          disambiguation question instead of a final answer. History/usage are
+          shimmed into a RoutedResult.
         - action="escalate" -> the full core agent (smart model + all tools) runs
           exactly as before, with the same history.
 
@@ -342,7 +344,10 @@ class AgentManager:
         # getattr guards against partial construction (e.g. unit tests using __new__).
         if getattr(self, "router", None) is not None:
             decision, router_usage = await self.router.route(user_input, history, deps)
-            if decision.action == "answer":
+            if decision.action in ("answer", "clarify"):
+                # Both return the router's reply directly. "clarify" carries a
+                # disambiguation question instead of a final answer; either way no
+                # smart-model cost is incurred.
                 # this result is consumed by runners.py via .output and .usage()
                 return RoutedResult(output=decision.reply, _usage=router_usage)
             # action == "escalate": fall through to the full core agent.

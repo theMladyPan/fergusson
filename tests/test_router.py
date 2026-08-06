@@ -13,6 +13,7 @@ from src.config import Settings
 
 def test_route_decision_validates_actions():
     assert RouteDecision(action="answer", reply="hi").action == "answer"
+    assert RouteDecision(action="clarify", reply="which account?").action == "clarify"
     assert RouteDecision(action="escalate", reply="").reply == ""
 
 
@@ -44,6 +45,16 @@ def test_router_model_env_override(monkeypatch):
 
 def test_router_escalates_speech_tool_requests():
     assert "speech transcription or synthesis" in ROUTER_INSTRUCTIONS
+
+
+def test_router_prompt_requires_clarification_for_vague_requests():
+    assert 'action="clarify"' in ROUTER_INSTRUCTIONS
+    assert "CLARIFY" in ROUTER_INSTRUCTIONS
+    # The three worked examples must be present verbatim to anchor behavior.
+    assert "Jakub Rubint" in ROUTER_INSTRUCTIONS
+    assert "themladypan@gmail.com" in ROUTER_INSTRUCTIONS
+    assert "pošli mu správu" in ROUTER_INSTRUCTIONS
+    assert "saves the expensive" in ROUTER_INSTRUCTIONS
 
 
 @pytest.mark.asyncio

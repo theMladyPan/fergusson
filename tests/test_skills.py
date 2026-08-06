@@ -438,6 +438,39 @@ async def test_agent_manager_run_passes_usage_limits(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_agent_manager_run_returns_router_clarify_without_core_agent():
+    """A router 'clarify' decision must return the question directly and never
+    invoke the core agent — clarification happens at the cheap router stage."""
+    from src.agent.router import RouteDecision
+
+    core_called = {"count": 0}
+
+    async def core_run(user_input, **kwargs):
+        core_called["count"] += 1
+        return SimpleNamespace(output="should-not-reach")
+
+    class _FakeRouter:
+        async def route(self, user_input, history, deps):
+            return (
+                RouteDecision(
+                    action="clarify",
+                    reply="Chceš emaily pre themladypan@gmail.com z inboxu alebo len neprečítané?",
+                ),
+                SimpleNamespace(input_tokens=1, output_tokens=1),
+            )
+
+    manager = AgentManager.__new__(AgentManager)
+    manager.core_agent = SimpleNamespace(run=core_run)
+    manager.router = _FakeRouter()
+    manager.relational_memory_store = None
+
+    result = await AgentManager.run(manager, "prečítaj mi emaily", history=[], chat_id="cli_chat", channel="cli")
+
+    assert core_called["count"] == 0
+    assert result.output == "Chceš emaily pre themladypan@gmail.com z inboxu alebo len neprečítané?"
+
+
+@pytest.mark.asyncio
 async def test_agent_manager_run_uses_recovery_agent_after_usage_limit():
     call_order = []
     captured = {}
