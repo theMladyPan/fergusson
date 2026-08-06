@@ -56,16 +56,57 @@ class DiscordConfig(BaseSettings):
     )
 
 
-class ElevenLabsConfig(BaseSettings):
+class CartesiaConfig(BaseSettings):
+    """Cartesia TTS (Text-to-Speech) credentials and tunables.
+
+    Replaces ElevenLabs TTS. Uses the `cartesia` Python SDK (`AsyncCartesia`).
+    Voice is selected by id; model defaults to `sonic-3.5`. Output is mp3 so it
+    drops in as a Discord media attachment like the previous ElevenLabs output.
+    """
+
     api_key: str | None = None
-    voice_id: str = "pNInz6obpgDQGcFmaJgB"  # Adam
-    model_id_tts: str = "eleven_multilingual_v2"
-    model_id_stt: str = "scribe_v1"
+    voice_id: str | None = None
+    model_id: str = "sonic-3.5"
+    # mp3 output: container + bit_rate. sample_rate is required for mp3 too.
+    sample_rate: int = 24000
+    bit_rate: int = 128000
+    timeout: int = 30
     model_config = SettingsConfigDict(
-        env_prefix="ELEVENLABS_",
+        env_prefix="CARTESIA_",
         env_file=".env",
         extra="ignore",
     )
+
+    @property
+    def is_configured(self) -> bool:
+        return bool(self.api_key) and bool(self.voice_id)
+
+
+class SttConfig(BaseSettings):
+    """Google Cloud Speech-to-Text (Chirp 3) settings for voice transcription.
+
+    Replaces ElevenLabs STT. Uses `google-cloud-speech` v2 with the `chirp_3`
+    model and online (synchronous) recognize over inline audio bytes, so no
+    GCS bucket is required. Authentication is Application Default Credentials:
+    on the headless host point `GOOGLE_APPLICATION_CREDENTIALS` at a service
+    account JSON key (SpeechClient picks it up automatically).
+    """
+
+    project_id: str | None = None
+    location: str = "us"
+    # Chirp 3 supports language-agnostic transcription via "auto".
+    language_codes: str = "auto"
+    model: str = "chirp_3"
+    timeout: int = 60
+    model_config = SettingsConfigDict(
+        env_prefix="STT_",
+        env_file=".env",
+        extra="ignore",
+    )
+
+    @property
+    def is_configured(self) -> bool:
+        return bool(self.project_id)
 
 
 class AgentConfig(BaseSettings):
@@ -193,7 +234,8 @@ class RouterConfig(BaseModel):
 
 class Settings(BaseSettings):
     discord: DiscordConfig = Field(default_factory=DiscordConfig)
-    elevenlabs: ElevenLabsConfig = Field(default_factory=ElevenLabsConfig)
+    cartesia: CartesiaConfig = Field(default_factory=CartesiaConfig)
+    stt: SttConfig = Field(default_factory=SttConfig)
     neo4j: Neo4jConfig = Field(default_factory=Neo4jConfig)
     exa: ExaConfig = Field(default_factory=ExaConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)

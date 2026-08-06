@@ -18,7 +18,8 @@ from src.broker.bus import MessageBus
 from src.broker.schemas import InboundMessage, MessageMetadata, OutboundMessage, TokenUsage
 from src.config import settings
 from src.db.session import async_session
-from src.services.elevenlabs import speech_to_text, text_to_speech
+from src.services.cartesia import text_to_speech
+from src.services.chirp3 import speech_to_text
 from src.tools.fs import read_file_content
 
 
