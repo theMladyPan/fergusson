@@ -16,6 +16,7 @@ Design:
   which just skips transcription and forwards the raw message.
 """
 
+import os
 from pathlib import Path
 
 import logfire
@@ -45,6 +46,17 @@ async def speech_to_text(audio_path: str) -> str | None:
     from google.api_core.client_options import ClientOptions
     from google.cloud.speech_v2 import SpeechAsyncClient
     from google.cloud.speech_v2.types import cloud_speech
+
+    # Layer 0: Google auth reads GOOGLE_APPLICATION_CREDENTIALS literally and
+    # does NOT expand `~`, so a `~/key.json` path fails with "File not found".
+    # Expand it here so users can write `~` in .env. Safe no-op when already
+    # absolute or unset.
+    creds_env = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+    if creds_env:
+        expanded = os.path.expanduser(creds_env)
+        if expanded != creds_env:
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = expanded
+            logfire.info(f"Expanded GOOGLE_APPLICATION_CREDENTIALS ~ -> {expanded}")
 
     try:
         client = SpeechAsyncClient(

@@ -102,6 +102,39 @@ def resolve_model_spec(model_spec: str, retrying_client: AsyncClient | None = No
 
 
 class AgentManager:
+    def _log_voice_config_status(self) -> None:
+        """Log STT/TTS configuration status once at startup.
+
+        Makes missing voice config visible in `journalctl` without having to send
+        a test voice message. Called from `__init__`.
+        """
+        import os
+
+        stt = settings.stt
+        tts = settings.cartesia
+        creds = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+        creds_status = "set" if creds else "unset"
+        if stt.is_configured:
+            logfire.info(
+                f"STT configured: Chirp 3 (project={stt.project_id}, location={stt.location}, "
+                f"model={stt.model}, language_codes={stt.language_codes}, credentials={creds_status})"
+            )
+        else:
+            logfire.warning(
+                "STT not configured (STT_PROJECT_ID missing). Voice transcription disabled; "
+                "voice messages will be returned to the user with a 'transcription unavailable' note."
+            )
+        if tts.is_configured:
+            logfire.info(
+                f"TTS configured: Cartesia (voice_id={tts.voice_id}, model={tts.model_id}, "
+                f"sample_rate={tts.sample_rate}, bit_rate={tts.bit_rate})"
+            )
+        else:
+            logfire.warning(
+                "TTS not configured (CARTESIA_API_KEY or CARTESIA_VOICE_ID missing). "
+                "Voice replies disabled; voice-in turns will get a text reply only."
+            )
+
     def _build_system_prompt(self) -> str:
         template_path = Path(__file__).parents[1] / "prompt" / "core.md"
         with open(template_path, "r") as f:
@@ -142,6 +175,10 @@ class AgentManager:
 
         self.registry = SkillRegistry()
         self.registry.discover()
+
+        # Startup config check: surface voice-service status once so missing
+        # STT/TTS config is obvious in logs without sending a test voice message.
+        self._log_voice_config_status()
         self.relational_memory_store: RelationalMemoryStore | None = None
         capabilities: list[AbstractCapability[AgentDeps]] = []
         if settings.neo4j.is_configured:

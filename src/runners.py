@@ -47,6 +47,27 @@ async def agent_loop(bus: MessageBus, manager: AgentManager, archiver: Archiver)
                             if stt_text:
                                 msg.content += f"\n\n[Hlasová transkripcia z audia: '{stt_text}']"
                                 is_voice_request = True
+                            else:
+                                # STT failed/unconfigured: replace the bare
+                                # [attachment: <path>] marker with a clear note so
+                                # the agent tells the user instead of shelling out
+                                # to whisper/ffmpeg via bash. Do NOT pass the raw
+                                # audio path to the model.
+                                marker = f"[attachment: {media_path}]"
+                                note = (
+                                    "[Voice message — transcription unavailable "
+                                    "(Chirp 3 STT not configured or failed). "
+                                    "Tell the user you could not transcribe the voice message; "
+                                    "do not try to transcribe it via bash.]"
+                                )
+                                if marker in msg.content:
+                                    msg.content = msg.content.replace(marker, note)
+                                else:
+                                    msg.content += f"\n\n{note}"
+                                logfire.warning(
+                                    f"STT returned no transcript for {media_path}; "
+                                    f"agent told transcription is unavailable"
+                                )
                             break  # Prepisujeme iba prvú hlasovku z poľa pre zjednodušenie
                     # --------------------------------------------
 
