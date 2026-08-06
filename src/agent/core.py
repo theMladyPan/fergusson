@@ -212,7 +212,8 @@ class AgentManager:
                 "# Request Limit Recovery\n"
                 "You are handling a turn where the runtime request limit was reached. "
                 "You have no tools in this recovery mode. Respond directly to the user from the existing conversation context only. "
-                "Explain briefly that this turn took too many attempts, avoid internal exception names, and ask for a narrower follow-up if needed."
+                "In one or two sentences, in the user's language: say what you were trying to do and that it took too many attempts, "
+                "avoid internal exception names, and ask a concise follow-up — should you keep trying the same approach, try a different one, or drop the task?"
             ),
             tool_timeout=settings.agent.tool_timeout,
             retries=settings.agent.retries,
