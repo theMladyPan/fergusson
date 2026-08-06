@@ -9,7 +9,6 @@ from httpx import AsyncClient, HTTPStatusError
 from jinja2 import Template
 from pydantic_ai import Agent, AgentRunResult, RunContext
 from pydantic_ai.capabilities import AbstractCapability
-from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
 from pydantic_ai.exceptions import UsageLimitExceeded
 from pydantic_ai import ModelRetry
 from pydantic_ai.models.google import GoogleModel
@@ -163,7 +162,7 @@ class AgentManager:
             instructions=system_prompt,
             tool_timeout=settings.agent.tool_timeout,
             retries=settings.agent.retries,
-            tools=[duckduckgo_search_tool()],
+            tools=[],
             capabilities=capabilities or None,
         )
 

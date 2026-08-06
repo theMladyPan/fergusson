@@ -100,6 +100,30 @@ class Neo4jConfig(BaseSettings):
         return bool(self.enabled and self.uri and self.user and self.password)
 
 
+class ExaConfig(BaseSettings):
+    """Exa search API credentials and tunables used by the `web_search` tool.
+
+    The same tool is registered in both the core agent and the router, but each
+    uses a different search type: the core agent uses `search_type` (quality),
+    the router uses `router_search_type` (low-latency fast path).
+    """
+
+    api_key: str | None = None
+    num_results: int = Field(5, description="Number of results returned per search")
+    search_type: str = Field("auto", description="Exa search type for the core agent (auto/fast/instant/deep-lite/deep)")
+    router_search_type: str = Field("fast", description="Exa search type for the router's fail-fast path")
+    timeout: int = Field(15, description="Per-request timeout in seconds for the Exa HTTP call")
+    model_config = SettingsConfigDict(
+        env_prefix="EXA_",
+        env_file=".env",
+        extra="ignore",
+    )
+
+    @property
+    def is_configured(self) -> bool:
+        return bool(self.api_key)
+
+
 class EmbeddingConfig(BaseSettings):
     provider: str = Field(
         "google-gla",
@@ -171,6 +195,7 @@ class Settings(BaseSettings):
     discord: DiscordConfig = Field(default_factory=DiscordConfig)
     elevenlabs: ElevenLabsConfig = Field(default_factory=ElevenLabsConfig)
     neo4j: Neo4jConfig = Field(default_factory=Neo4jConfig)
+    exa: ExaConfig = Field(default_factory=ExaConfig)
     memory: MemoryConfig = Field(default_factory=MemoryConfig)
     agent: AgentConfig = Field(
         default_factory=lambda: AgentConfig(
