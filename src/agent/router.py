@@ -20,10 +20,11 @@ Design decisions (see AGENTS.md):
 from dataclasses import dataclass
 from typing import Any, Literal
 
+import anyio.to_thread
 import logfire
+from ddgs.ddgs import DDGS
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
-from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
 from pydantic_ai.usage import UsageLimits
 
 from src.agent.deps import AgentDeps
@@ -53,7 +54,7 @@ ANSWER directly (action="answer") ONLY for simple, plain requests such as:
 - Greetings, small talk, acknowledgments.
 - Factual recall, short rephrasings, clarifications.
 - Questions you can fully resolve with at most one quick read-only lookup using
-  read_file_content or duckduckgo_search.
+  read_file_content or web_search.
 
 ESCALATE (action="escalate") for anything that needs:
 - File writes/edits, multi-step tool chains, skills, bash, or URL content fetch.
@@ -68,6 +69,31 @@ Rules:
 - When action="answer", put the complete user-facing reply in `reply` and match a
   natural, concise assistant tone. When action="escalate", leave `reply` empty.
 """
+
+
+async def _web_search(query: str) -> str:
+    """Read-only DuckDuckGo search returning a compact text digest.
+
+    Implemented as a local wrapper (instead of ``pydantic_ai.common_tools.duckduckgo``)
+    so the router agent's tool schema only sees a plain ``(query: str) -> str``
+    signature. The upstream tool exposes the ``DDGS``/``DuckDuckGoResult`` types
+    in its annotation globals; when a PydanticAI ``Agent`` is built inside a
+    method *and* given a structured ``output_type``, pydantic resolves those
+    foreign types against the caller's globals and fails schema generation.
+    This wrapper keeps the cheap path fail-fast: any error surfaces as a tool
+    failure and the router escalates instead of answering.
+    """
+
+    def _sync_search() -> list[dict]:
+        with DDGS() as client:
+            return list(client.text(query, max_results=5))
+
+    results = await anyio.to_thread.run_sync(_sync_search)
+    if not results:
+        return "No web results found."
+    return "\n\n".join(
+        f"- {r.get('title', '')}: {r.get('body', '')} ({r.get('href', '')})" for r in results
+    )
 
 
 @dataclass
@@ -99,7 +125,7 @@ class RouterAgent:
             instructions=ROUTER_INSTRUCTIONS,
             tool_timeout=settings.router.tool_timeout,
             retries=settings.router.retries,
-            tools=[read_file_content, duckduckgo_search_tool],
+            tools=[read_file_content, _web_search],
         )
 
     async def route(
