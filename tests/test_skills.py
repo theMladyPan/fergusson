@@ -414,6 +414,7 @@ async def test_agent_manager_run_passes_usage_limits(monkeypatch):
 
     manager = AgentManager.__new__(AgentManager)
     manager.core_agent = SimpleNamespace(run=fake_run)
+    manager.router = None  # routing disabled: exercise core-agent path directly
     manager.relational_memory_store = None
 
     await AgentManager.run(manager, "hello", history=[], chat_id="cli_chat", channel="cli", sender_id="user-123")
@@ -444,6 +445,7 @@ async def test_agent_manager_run_uses_recovery_agent_after_usage_limit():
 
     manager = AgentManager.__new__(AgentManager)
     manager.core_agent = SimpleNamespace(run=core_run)
+    manager.router = None  # routing disabled: exercise recovery path directly
     manager.request_limit_recovery_agent = SimpleNamespace(run=recovery_run)
     manager.relational_memory_store = None
 
@@ -465,6 +467,7 @@ async def test_agent_manager_run_returns_plain_fallback_if_recovery_agent_fails(
 
     manager = AgentManager.__new__(AgentManager)
     manager.core_agent = SimpleNamespace(run=core_run)
+    manager.router = None  # routing disabled: exercise fallback path directly
     manager.request_limit_recovery_agent = SimpleNamespace(run=recovery_run)
     manager.relational_memory_store = None
 

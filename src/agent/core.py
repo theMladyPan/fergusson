@@ -1,5 +1,4 @@
 import os
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -21,8 +20,10 @@ from pydantic_ai.retries import AsyncTenacityTransport, RetryConfig, wait_retry_
 from pydantic_ai.usage import UsageLimits
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential
 
+from src.agent.deps import AgentDeps
 from src.agent.memory import get_history_thread_id, get_recent_delivery_destinations
 from src.agent.relational_memory import RelationalMemoryCapability, RelationalMemoryStore
+from src.agent.router import RoutedResult, RouterAgent
 from src.agent.skills import SkillRegistry
 from src.broker.bus import MessageBus
 from src.config import settings
@@ -101,14 +102,6 @@ def resolve_model_spec(model_spec: str, retrying_client: AsyncClient | None = No
     return normalized_spec
 
 
-@dataclass
-class AgentDeps:
-    chat_id: str
-    channel: str
-    history_thread_id: str
-    sender_id: str | None = None
-
-
 class AgentManager:
     def _build_system_prompt(self) -> str:
         template_path = Path(__file__).parents[1] / "prompt" / "core.md"
@@ -138,6 +131,12 @@ class AgentManager:
 
         self.smart_model = resolve_model_spec(settings.smart_model)
         self.fast_model = resolve_model_spec(settings.fast_model)
+
+        # Auto-routing first stage (cheap model). When enabled, `run` consults the
+        # router before the full core agent; a direct "answer" short-circuits the
+        # smart model entirely. Disabled -> behaves as before (core agent only).
+        self.router_model = resolve_model_spec(settings.router_model) if settings.router.enabled else None
+        self.router = RouterAgent(self.router_model) if settings.router.enabled else None
 
         # Use the smart model for the Core Agent
         self.model = self.smart_model
@@ -261,7 +260,17 @@ class AgentManager:
         sender_id: str | None = None,
         history_thread_id: str | None = None,
     ) -> AgentRunResult:
-        """Runs the core agent loop."""
+        """Runs the agent loop with an optional auto-routing first stage.
+
+        When routing is enabled, a cheap router model first classifies the turn:
+        - action="answer"  -> the router's reply is returned directly (no smart
+          model cost, no tool loop). History/usage are shimmed into a RoutedResult.
+        - action="escalate" -> the full core agent (smart model + all tools) runs
+          exactly as before, with the same history.
+
+        Any router failure is converted to "escalate" inside RouterAgent.route, so
+        this path never raises due to the router.
+        """
 
         deps = AgentDeps(
             chat_id=chat_id,
@@ -269,6 +278,15 @@ class AgentManager:
             history_thread_id=history_thread_id or get_history_thread_id(channel, sender_id),
             sender_id=sender_id,
         )
+
+        # Stage 1: cheap router. Skipped entirely when routing is disabled.
+        # getattr guards against partial construction (e.g. unit tests using __new__).
+        if getattr(self, "router", None) is not None:
+            decision, router_usage = await self.router.route(user_input, history, deps)
+            if decision.action == "answer":
+                # this result is consumed by runners.py via .output and .usage()
+                return RoutedResult(output=decision.reply, _usage=router_usage)
+            # action == "escalate": fall through to the full core agent.
 
         try:
             return await self.core_agent.run(

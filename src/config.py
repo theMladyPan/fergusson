@@ -148,6 +148,25 @@ class MemoryConfig(BaseSettings):
     )
 
 
+class RouterConfig(BaseModel):
+    """Tunable limits for the auto-routing router agent.
+
+    The router is a cheap first-stage model that either answers simple requests
+    directly or escalates to the full core agent (smart model + tools).
+    Limits are intentionally tighter than the core agent so the cheap path stays
+    low-latency and fails fast into escalation.
+    """
+
+    enabled: bool = Field(default=True, description="Toggle the auto-routing first stage")
+    tool_timeout: int = Field(default=5, description="Per-tool timeout for router read-only tools")
+    retries: int = Field(default=0, description="Router retries; 0 so tool failures escalate immediately")
+    request_limit: int = Field(default=3, description="Max model requests for a single router decision")
+    history_window: int = Field(
+        default=6,
+        description="Number of most recent history messages passed to the router for context",
+    )
+
+
 class Settings(BaseSettings):
     discord: DiscordConfig = Field(default_factory=DiscordConfig)
     elevenlabs: ElevenLabsConfig = Field(default_factory=ElevenLabsConfig)
@@ -160,13 +179,18 @@ class Settings(BaseSettings):
             request_limit=10,
         )
     )
+    router: RouterConfig = Field(default_factory=RouterConfig)
     smart_model: str = Field(
-        "google-gla:gemini-3-flash-preview",
-        description="Primary agent model in native PydanticAI provider:model format",
+        "google-gla:gemini-3.6-flash",
+        description="Primary (escalation) agent model in native PydanticAI provider:model format",
     )
     fast_model: str = Field(
-        "google-gla:gemini-3.1-flash-lite-preview",
+        "google-gla:gemini-3.5-flash-lite",
         description="Fast/utility agent model in native PydanticAI provider:model format",
+    )
+    router_model: str = Field(
+        "google-gla:gemini-3.5-flash-lite",
+        description="Cheap first-stage router model in native PydanticAI provider:model format",
     )
     redis_host: str = "localhost"
     redis_port: int = 6379
