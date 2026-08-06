@@ -38,7 +38,9 @@ def test_cartesia_config_env_override(monkeypatch):
 
 def test_stt_config_defaults(monkeypatch):
     monkeypatch.delenv("STT_PROJECT_ID", raising=False)
+    monkeypatch.delenv("STT_CREDENTIALS_FILE", raising=False)
     s = Settings(_env_file=None)
+    assert s.stt.credentials_file is None
     assert s.stt.location == "us"
     assert s.stt.language_codes == "auto"
     assert s.stt.model == "chirp_3"
@@ -48,13 +50,22 @@ def test_stt_config_defaults(monkeypatch):
 
 def test_stt_config_env_override(monkeypatch):
     monkeypatch.setenv("STT_PROJECT_ID", "proj-x")
+    monkeypatch.setenv("STT_CREDENTIALS_FILE", "~/chirp-key.json")
     monkeypatch.setenv("STT_LOCATION", "eu")
     monkeypatch.setenv("STT_LANGUAGE_CODES", "auto,sk-SK")
     s = Settings(_env_file=None)
     assert s.stt.project_id == "proj-x"
+    assert s.stt.credentials_file == Path("~/chirp-key.json")
     assert s.stt.location == "eu"
     assert s.stt.language_codes == "auto,sk-SK"
     assert s.stt.is_configured is True
+
+
+def test_stt_config_requires_credentials_file(monkeypatch):
+    monkeypatch.setenv("STT_PROJECT_ID", "proj-x")
+    monkeypatch.delenv("STT_CREDENTIALS_FILE", raising=False)
+
+    assert Settings(_env_file=None).stt.is_configured is False
 
 
 def test_elevenlabs_config_removed():
@@ -296,6 +307,7 @@ async def test_stt_returns_none_when_file_missing(monkeypatch, tmp_path):
     from src.config import Settings
 
     monkeypatch.setenv("STT_PROJECT_ID", "proj-x")
+    monkeypatch.setenv("STT_CREDENTIALS_FILE", str(tmp_path / "chirp-key.json"))
     monkeypatch.setattr("src.services.chirp3.settings", Settings(_env_file=None))
 
     from src.services.chirp3 import speech_to_text
@@ -307,13 +319,17 @@ async def test_stt_returns_none_when_file_missing(monkeypatch, tmp_path):
 async def test_stt_transcribes_inline_audio(monkeypatch, tmp_path):
     from src.config import Settings
 
+    credentials_file = tmp_path / "chirp-key.json"
+    credentials_file.write_text("{}")
     monkeypatch.setenv("STT_PROJECT_ID", "proj-x")
+    monkeypatch.setenv("STT_CREDENTIALS_FILE", str(credentials_file))
     monkeypatch.setattr("src.services.chirp3.settings", Settings(_env_file=None))
 
     audio = tmp_path / "clip.mp3"
     audio.write_bytes(b"fakeaudio")
 
     captured: dict = {}
+    fake_credentials = object()
 
     class _Alt:
         def __init__(self, transcript):
@@ -380,6 +396,19 @@ async def test_stt_transcribes_inline_audio(monkeypatch, tmp_path):
     api_core_mod.client_options = api_core_co
     google_mod.api_core = api_core_mod
 
+    oauth2_mod = types.ModuleType("google.oauth2")
+    service_account_mod = types.ModuleType("google.oauth2.service_account")
+
+    class _Credentials:
+        @classmethod
+        def from_service_account_file(cls, filename):
+            captured["credentials_file"] = filename
+            return fake_credentials
+
+    service_account_mod.Credentials = _Credentials
+    oauth2_mod.service_account = service_account_mod
+    google_mod.oauth2 = oauth2_mod
+
     speech_pkg = types.ModuleType("google.cloud.speech_v2")
     speech_pkg.SpeechAsyncClient = _AsyncClient
     speech_pkg.types = types.ModuleType("google.cloud.speech_v2.types")
@@ -391,6 +420,8 @@ async def test_stt_transcribes_inline_audio(monkeypatch, tmp_path):
     monkeypatch.setitem(sys.modules, "google", google_mod)
     monkeypatch.setitem(sys.modules, "google.api_core", api_core_mod)
     monkeypatch.setitem(sys.modules, "google.api_core.client_options", api_core_co)
+    monkeypatch.setitem(sys.modules, "google.oauth2", oauth2_mod)
+    monkeypatch.setitem(sys.modules, "google.oauth2.service_account", service_account_mod)
     monkeypatch.setitem(sys.modules, "google.cloud", cloud_pkg)
     monkeypatch.setitem(sys.modules, "google.cloud.speech_v2", speech_pkg)
     monkeypatch.setitem(sys.modules, "google.cloud.speech_v2.types", speech_pkg.types)
@@ -403,6 +434,8 @@ async def test_stt_transcribes_inline_audio(monkeypatch, tmp_path):
     assert captured["model"] == "chirp_3"
     assert captured["language_codes"] == ["auto"]
     assert captured["content_len"] == len(b"fakeaudio")
+    assert captured["credentials_file"] == str(credentials_file)
+    assert captured["client_kwargs"]["credentials"] is fake_credentials
     assert "us-speech.googleapis.com" in captured["client_kwargs"]["client_options"]["api_endpoint"]
 
 
@@ -410,7 +443,10 @@ async def test_stt_transcribes_inline_audio(monkeypatch, tmp_path):
 async def test_stt_returns_none_on_sdk_error(monkeypatch, tmp_path):
     from src.config import Settings
 
+    credentials_file = tmp_path / "chirp-key.json"
+    credentials_file.write_text("{}")
     monkeypatch.setenv("STT_PROJECT_ID", "proj-x")
+    monkeypatch.setenv("STT_CREDENTIALS_FILE", str(credentials_file))
     monkeypatch.setattr("src.services.chirp3.settings", Settings(_env_file=None))
 
     audio = tmp_path / "clip.mp3"
@@ -434,6 +470,12 @@ async def test_stt_returns_none_on_sdk_error(monkeypatch, tmp_path):
     api_core_co.ClientOptions = lambda **kw: kw
     api_core_mod.client_options = api_core_co
     google_mod.api_core = api_core_mod
+
+    oauth2_mod = types.ModuleType("google.oauth2")
+    service_account_mod = types.ModuleType("google.oauth2.service_account")
+    service_account_mod.Credentials = SimpleNamespace(from_service_account_file=lambda _filename: object())
+    oauth2_mod.service_account = service_account_mod
+    google_mod.oauth2 = oauth2_mod
 
     speech_pkg = types.ModuleType("google.cloud.speech_v2")
     speech_pkg.SpeechAsyncClient = _AsyncClient
@@ -462,6 +504,8 @@ async def test_stt_returns_none_on_sdk_error(monkeypatch, tmp_path):
     monkeypatch.setitem(sys.modules, "google", google_mod)
     monkeypatch.setitem(sys.modules, "google.api_core", api_core_mod)
     monkeypatch.setitem(sys.modules, "google.api_core.client_options", api_core_co)
+    monkeypatch.setitem(sys.modules, "google.oauth2", oauth2_mod)
+    monkeypatch.setitem(sys.modules, "google.oauth2.service_account", service_account_mod)
     monkeypatch.setitem(sys.modules, "google.cloud", cloud_pkg)
     monkeypatch.setitem(sys.modules, "google.cloud.speech_v2", speech_pkg)
     monkeypatch.setitem(sys.modules, "google.cloud.speech_v2.types", speech_pkg.types)

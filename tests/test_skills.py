@@ -344,7 +344,16 @@ Drive instructions.
     )
 
 
-def test_agent_system_prompt_includes_skill_catalog_not_full_bodies(tmp_path: Path):
+def test_agent_system_prompt_includes_skill_catalog_not_full_bodies(tmp_path: Path, monkeypatch):
+    workspace_dir = tmp_path / "workspace"
+    workspace_dir.mkdir()
+    (workspace_dir / "PERSONALITY.md").write_text("Test personality", encoding="utf-8")
+    (workspace_dir / "MEMORY.md").write_text("Test memory", encoding="utf-8")
+    monkeypatch.setattr(
+        "src.agent.core.settings",
+        settings.model_copy(update={"workspace_folder": workspace_dir}),
+    )
+
     _write_skill(
         tmp_path,
         "researcher",
@@ -490,6 +499,7 @@ def test_common_gws_operations_skill_encodes_gws_cli_fallbacks():
     assert "gws schema <resource>.<method>" in content
     assert "Pattern: Fresh inbox pass" in content
     assert "Pattern: Low-iteration unattended processing" in content
+    assert "load `gws-debug`" in content
 
     registry = SkillRegistry(repo_root / "workspace" / "skills")
     registry.discover()
@@ -499,10 +509,39 @@ def test_common_gws_operations_skill_encodes_gws_cli_fallbacks():
     assert skill.metadata.missing_required_skills == []
 
 
+def test_gws_debug_skill_keeps_personal_gmail_off_service_account_adc():
+    repo_root = Path(__file__).resolve().parents[1]
+    skills_root = repo_root / "workspace" / "skills"
+    debug_skill_path = skills_root / "gws-debug" / "SKILL.md"
+    setup_skill_path = skills_root / "gws-setup-assistant" / "SKILL.md"
+    helper_path = skills_root / "gws-debug" / "scripts" / "gws-helper.sh"
+
+    debug_content = debug_skill_path.read_text(encoding="utf-8")
+    setup_content = setup_skill_path.read_text(encoding="utf-8")
+    helper_content = helper_path.read_text(encoding="utf-8")
+
+    assert "consumer `@gmail.com`" in debug_content
+    assert "Domain-Wide Delegation" in debug_content
+    assert "GOOGLE_APPLICATION_CREDENTIALS" in debug_content
+    assert "must not be used" in debug_content
+    assert 'skills: ["gws-debug"]' in setup_content
+    assert 'GWS_CONFIG_DIR="${GOOGLE_WORKSPACE_CLI_CONFIG_DIR:-$HOME/.config/gws}"' in helper_content
+    assert "/home/stanke" not in helper_content
+
+    registry = SkillRegistry(skills_root)
+    registry.discover()
+    assert registry.skills["gws-debug"].metadata.required_bins == ["gws"]
+    assert registry.skills["gws-setup-assistant"].metadata.required_skills == ["gws-debug"]
+    assert registry.skills["gws-setup-assistant"].metadata.missing_required_skills == []
+
+
 def test_rubint_accountant_skill_references_common_gws_operations():
     repo_root = Path(__file__).resolve().parents[1]
     registry = SkillRegistry(repo_root / "workspace" / "skills")
     registry.discover()
+
+    if "rubint-accountant" not in registry.skills:
+        pytest.skip("rubint-accountant is an optional deployment-local skill")
 
     skill = registry.skills["rubint-accountant"]
     assert skill.metadata.required_bins == ["gws"]

@@ -108,20 +108,17 @@ class AgentManager:
         Makes missing voice config visible in `journalctl` without having to send
         a test voice message. Called from `__init__`.
         """
-        import os
-
         stt = settings.stt
         tts = settings.cartesia
-        creds = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
-        creds_status = "set" if creds else "unset"
+        credentials_status = "set" if stt.credentials_file else "unset"
         if stt.is_configured:
             logfire.info(
                 f"STT configured: Chirp 3 (project={stt.project_id}, location={stt.location}, "
-                f"model={stt.model}, language_codes={stt.language_codes}, credentials={creds_status})"
+                f"model={stt.model}, language_codes={stt.language_codes}, credentials={credentials_status})"
             )
         else:
             logfire.warning(
-                "STT not configured (STT_PROJECT_ID missing). Voice transcription disabled; "
+                "STT not configured (STT_PROJECT_ID or STT_CREDENTIALS_FILE missing). Voice transcription disabled; "
                 "voice messages will be returned to the user with a 'transcription unavailable' note."
             )
         if tts.is_configured:

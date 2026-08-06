@@ -91,12 +91,16 @@ class SttConfig(BaseSettings):
 
     Replaces ElevenLabs STT. Uses `google-cloud-speech` v2 with the `chirp_3`
     model and online (synchronous) recognize over inline audio bytes, so no
-    GCS bucket is required. Authentication is Application Default Credentials:
-    on the headless host point `GOOGLE_APPLICATION_CREDENTIALS` at a service
-    account JSON key (SpeechClient picks it up automatically).
+    GCS bucket is required. The service-account key is loaded explicitly from
+    `STT_CREDENTIALS_FILE` so generic child processes cannot inherit the STT
+    identity through Application Default Credentials.
     """
 
-    project_id: str | None = None
+    project_id: str | None = Field(default=None, description="Google Cloud project that hosts Chirp 3 STT.")
+    credentials_file: Path | None = Field(
+        default=None,
+        description="Service-account JSON key used only by the Chirp 3 client.",
+    )
     location: str = "us"
     # Chirp 3 supports language-agnostic transcription via "auto".
     language_codes: str = "auto"
@@ -110,7 +114,7 @@ class SttConfig(BaseSettings):
 
     @property
     def is_configured(self) -> bool:
-        return bool(self.project_id)
+        return bool(self.project_id and self.credentials_file)
 
 
 class AgentConfig(BaseSettings):

@@ -13,7 +13,7 @@ metadata:
 
 > **HEADLESS OPERATION:** This skill is intended for non-interactive environments. Do **not** assume keyring access or browser-driven login flows at runtime. Prefer pre-provisioned stored credentials, environment-based authentication, or other non-interactive auth setups supported by the host environment. Validate authentication before doing user-facing work.
 >
-> **AUTH TROUBLESHOOTING:** If the first lightweight Gmail, Calendar, or Drive read fails, or the available `gws` subcommands look different from the examples here, load `gws-setup-assistant` before continuing.
+> **AUTH TROUBLESHOOTING:** If the first lightweight Gmail, Calendar, or Drive read fails, or the available `gws` subcommands look different from the examples here, load `gws-debug` before continuing. Do not fall back to service-account ADC or another mail CLI.
 
 Operate as a personal assistant handling inbox triage, outgoing communications, document retrieval/storage, and calendar organization across Gmail, Google Drive, and Google Calendar.
 
@@ -22,7 +22,8 @@ Operate as a personal assistant handling inbox triage, outgoing communications, 
 - Work safely in **headless mode**:
   - do not rely on OS keyring prompts
   - do not rely on interactive browser login during task execution
-  - assume credentials are already stored/provisioned by the environment
+  - assume user OAuth credentials are already stored/provisioned by the environment
+  - never use `GOOGLE_APPLICATION_CREDENTIALS` service-account ADC for a consumer `@gmail.com` mailbox
 - Prefer helper commands for fast reads:
   - use `gws gmail +triage --max N --format table` for a quick unread inbox summary
   - top-level Gmail read commands like `list` do not exist; use `+triage` or raw `users messages list`

@@ -80,56 +80,67 @@ def test_transcribe_audio_registered_in_all_tools():
 
 
 @pytest.mark.asyncio
-async def test_chirp3_expands_tilde_in_credentials_env(monkeypatch, tmp_path):
-    """Layer 0: GOOGLE_APPLICATION_CREDENTIALS with ~ must be expanded before
-    the SpeechAsyncClient is constructed (google.auth does not expand ~ itself)."""
+async def test_chirp3_loads_explicit_credentials_without_mutating_adc(monkeypatch, tmp_path):
+    """Chirp loads its dedicated key without changing process-wide ADC."""
     from src.config import Settings
 
-    monkeypatch.setenv("STT_PROJECT_ID", "proj-x")
-    monkeypatch.setattr("src.services.chirp3.settings", Settings(_env_file=None))
-
-    # Simulate a ~ path that should be expanded to the absolute home path.
     fake_key = tmp_path / "key.json"
     fake_key.write_text("{}")
     monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", "~/key.json")
+    monkeypatch.setenv("STT_PROJECT_ID", "proj-x")
+    monkeypatch.setenv("STT_CREDENTIALS_FILE", "~/key.json")
+    monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", "/unrelated/adc.json")
+    monkeypatch.setattr("src.services.chirp3.settings", Settings(_env_file=None))
 
     import os
+    import types
 
     captured: dict = {}
+    fake_credentials = object()
+
+    class _Credentials:
+        @classmethod
+        def from_service_account_file(cls, filename):
+            captured["credentials_file"] = filename
+            return fake_credentials
 
     class _AsyncClient:
-        def __init__(self, *a, **kw):
-            captured["env_after"] = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+        def __init__(self, *args, **kwargs):
+            captured["client_credentials"] = kwargs["credentials"]
+            captured["adc_after"] = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
 
-        def recognizer_path(self, *a):
+        def recognizer_path(self, *args):
             return "r"
 
         async def recognize(self, request=None, timeout=None):
-            raise RuntimeError("stop here, we only care about env expansion")
-
-    import types
+            raise RuntimeError("stop after credential wiring")
 
     google_mod = types.ModuleType("google")
     api_core_mod = types.ModuleType("google.api_core")
     api_core_co = types.ModuleType("google.api_core.client_options")
-    api_core_co.ClientOptions = lambda **kw: kw
+    api_core_co.ClientOptions = lambda **kwargs: kwargs
     api_core_mod.client_options = api_core_co
     google_mod.api_core = api_core_mod
+
+    oauth2_mod = types.ModuleType("google.oauth2")
+    service_account_mod = types.ModuleType("google.oauth2.service_account")
+    service_account_mod.Credentials = _Credentials
+    oauth2_mod.service_account = service_account_mod
+    google_mod.oauth2 = oauth2_mod
 
     speech_pkg = types.ModuleType("google.cloud.speech_v2")
     speech_pkg.SpeechAsyncClient = _AsyncClient
     speech_pkg.types = types.ModuleType("google.cloud.speech_v2.types")
 
     class _RecognitionConfig:
-        def __init__(self, **kw):
+        def __init__(self, **kwargs):
             pass
 
     class _AutoDetectDecodingConfig:
         pass
 
     class _RecognizeRequest:
-        def __init__(self, **kw):
+        def __init__(self, **kwargs):
             pass
 
     speech_pkg.types.cloud_speech = SimpleNamespace(
@@ -144,6 +155,8 @@ async def test_chirp3_expands_tilde_in_credentials_env(monkeypatch, tmp_path):
     monkeypatch.setitem(sys.modules, "google", google_mod)
     monkeypatch.setitem(sys.modules, "google.api_core", api_core_mod)
     monkeypatch.setitem(sys.modules, "google.api_core.client_options", api_core_co)
+    monkeypatch.setitem(sys.modules, "google.oauth2", oauth2_mod)
+    monkeypatch.setitem(sys.modules, "google.oauth2.service_account", service_account_mod)
     monkeypatch.setitem(sys.modules, "google.cloud", cloud_pkg)
     monkeypatch.setitem(sys.modules, "google.cloud.speech_v2", speech_pkg)
     monkeypatch.setitem(sys.modules, "google.cloud.speech_v2.types", speech_pkg.types)
@@ -153,12 +166,10 @@ async def test_chirp3_expands_tilde_in_credentials_env(monkeypatch, tmp_path):
 
     from src.services.chirp3 import speech_to_text
 
-    # The function swallows internal exceptions and returns None; we only assert
-    # the env was expanded before the client constructor ran.
-    result = await speech_to_text(str(audio))
-    assert result is None
-    assert captured["env_after"] == str(fake_key)
-    assert "~" not in captured["env_after"]
+    assert await speech_to_text(str(audio)) is None
+    assert captured["credentials_file"] == str(fake_key)
+    assert captured["client_credentials"] is fake_credentials
+    assert captured["adc_after"] == "/unrelated/adc.json"
 
 
 @pytest.mark.asyncio

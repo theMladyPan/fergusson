@@ -12,3 +12,4 @@ workspace/skills/*
 !workspace/skills/personal-google-workspace-assistant/
 !workspace/skills/gws-setup-assistant/
 !workspace/skills/common-gws-opeartions/
+!workspace/skills/gws-debug/
