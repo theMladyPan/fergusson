@@ -11,7 +11,7 @@ Design decisions (see AGENTS.md):
   is too vague to act on, saving the expensive escalation round trip.
 - Read-only lightweight tools only (``read_file_content`` + DuckDuckGo search);
   no writes/skills. Tools must be fast; on any failure the router escalates
-  instead of retrying (``retries=0``).
+  instead of retrying (``retries=1`` — one retry, then escalate).
 - Fail-fast: any exception during the router run (tool error, timeout, invalid
   structured output, usage limit) is swallowed and converted into an
   ``escalate`` decision. Escalating is always safe.

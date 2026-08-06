@@ -247,8 +247,10 @@ class RouterConfig(BaseModel):
     """
 
     enabled: bool = Field(default=True, description="Toggle the auto-routing first stage")
-    tool_timeout: int = Field(default=5, description="Per-tool timeout for router read-only tools")
-    retries: int = Field(default=0, description="Router retries; 0 so tool failures escalate immediately")
+    # 25s accommodates the gws CLI reads (network + OAuth round trips to Google).
+    # The router is still fail-fast: a second timeout/retry exhaustion escalates.
+    tool_timeout: int = Field(default=25, description="Per-tool timeout for router read-only tools (gws reads need network)")
+    retries: int = Field(default=1, description="Router tool retries; one retry before a tool failure escalates")
     request_limit: int = Field(default=3, description="Max model requests for a single router decision")
     history_window: int = Field(
         default=6,

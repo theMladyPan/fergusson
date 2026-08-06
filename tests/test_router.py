@@ -25,7 +25,8 @@ def test_route_decision_rejects_unknown_action():
 def test_router_config_defaults():
     settings = Settings(_env_file=None)
     assert settings.router.enabled is True
-    assert settings.router.retries == 0  # fail-fast into escalation
+    assert settings.router.retries == 1  # one retry, then escalate
+    assert settings.router.tool_timeout == 25  # accommodates gws network reads
     assert settings.router.request_limit == 3
     assert settings.router.history_window == 6
 
